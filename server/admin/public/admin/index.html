@@ -141,6 +141,7 @@
         <div class="mode-tabs">
           <button class="mode-tab active" data-mode="grant">🔔 Kullanıcı Onayı</button>
           <button class="mode-tab" data-mode="master">🗝️ Master Parola</button>
+          <button class="mode-tab" data-mode="disclosure">🚨 Yasal/Acil (E2E)</button>
         </div>
       </div>
 
@@ -196,6 +197,52 @@
           <div class="error" id="msgsError" hidden></div>
           <div class="success" id="msgsSuccess" hidden></div>
         </form>
+      </div>
+
+      <!-- Mod 3: Break-glass (E2E disclosure) -->
+      <div class="panel" id="modeDisclosure" hidden>
+        <div class="panel-head">
+          <h2>🚨 Break-Glass — E2E Mesaj Açma</h2>
+          <span class="hint">Sadece olağanüstü durumlar (mahkeme/siber-suç).</span>
+        </div>
+        <div class="warning-box" style="border-color:#dc2626;background:rgba(220,38,38,0.08);">
+          <strong style="color:#fca5a5;">⚠ DİKKAT — Çift onay süreci:</strong>
+          <ol style="margin:8px 0 0 18px;color:#cfd6e4;font-size:13px;line-height:1.7;">
+            <li>Master parola + gerekçe ile tetiklersin → owner e-postasına link gider.</li>
+            <li>Owner linke tıklar, master parolayı <b>1. kez</b> girer.</li>
+            <li><b>60 saniye bekler</b>, master parolayı <b>2. kez</b> girer.</li>
+            <li>"Bekleyen Talepler" listesinde durum <b>approved</b> olunca tek seferlik .txt indirebilirsin.</li>
+          </ol>
+        </div>
+        <form id="disclosureRequestForm" class="master-form" style="margin-top:14px;">
+          <div class="row">
+            <label>Master Parola</label>
+            <input type="password" id="discMasterPwd" placeholder="•••••••••••••" autocomplete="off">
+          </div>
+          <div class="row">
+            <label>Hedef Kullanıcı</label>
+            <input type="text" id="discUsername" placeholder="örn: ali_demir" autocomplete="off">
+          </div>
+          <div class="row">
+            <label>Gerekçe (en az 10 karakter — adli kayıt)</label>
+            <textarea id="discReason" rows="3"
+                      placeholder="örn: Siber Suçlar Şubesi 09/05/2026 mahkeme kararı no.123 — XYZ olayı kapsamında veri talebi"
+                      style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-2);color:var(--text);font-family:inherit;resize:vertical;"></textarea>
+          </div>
+          <button type="submit" class="btn" style="background:#dc2626;color:white;font-weight:700;">
+            🚨 Break-Glass başlat
+          </button>
+          <div class="error" id="discError" hidden></div>
+          <div class="success" id="discSuccess" hidden></div>
+        </form>
+
+        <div class="panel-head" style="margin-top:18px;">
+          <h2 style="font-size:14px;">Bekleyen Talepler</h2>
+          <button class="btn ghost sm" id="discRefresh">↻ Yenile</button>
+        </div>
+        <div id="discList" class="grant-list">
+          <p class="muted">Master parola gir + Yenile bas, talepler burada listelenir.</p>
+        </div>
       </div>
     </div>
 

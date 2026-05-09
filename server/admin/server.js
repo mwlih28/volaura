@@ -353,6 +353,70 @@ app.get('/api/admin/grant-export/:token', requireAdmin, async (req, res) => {
   }
 });
 
+// === E2E Disclosure (break-glass) — çift master onayı ===
+//
+// 1) Admin bu endpoint'e master parola + gerekçe gönderir → owner e-mail.
+// 2) Owner e-postadan iki kere master parola ile onaylar (60 sn arayla).
+// 3) Admin disclosure-list ile durumu görür; status='approved' olunca export çağırır.
+
+app.post('/api/admin/disclosure-request', requireAdmin, async (req, res) => {
+  const provided = String(req.body && req.body.masterPassword || '');
+  const username = String(req.body && req.body.username || '').trim();
+  const reason   = String(req.body && req.body.reason || '').trim();
+  if (!username) return res.status(400).json({ error: 'username_required' });
+  if (reason.length < 10) return res.status(400).json({ error: 'reason_too_short' });
+  if (!masterEq(provided)) return res.status(403).json({ error: 'invalid_master_password' });
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  try {
+    const r = await fetch(SIGNALING_BASE.replace(/\/$/, '') + '/admin/disclosure-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': MASTER_KEY },
+      body: JSON.stringify({ username, reason }),
+    });
+    const data = await r.json().catch(() => ({}));
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error('[disclosure-request] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable', detail: e.message });
+  }
+});
+
+app.post('/api/admin/disclosure-list', requireAdmin, async (req, res) => {
+  const provided = String(req.body && req.body.masterPassword || '');
+  if (!masterEq(provided)) return res.status(403).json({ error: 'invalid_master_password' });
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  try {
+    const r = await signalingFetch('/admin/disclosure-list');
+    const data = await r.json().catch(() => ({}));
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error('[disclosure-list] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable' });
+  }
+});
+
+app.post('/api/admin/disclosure-export', requireAdmin, async (req, res) => {
+  const provided = String(req.body && req.body.masterPassword || '');
+  const token    = String(req.body && req.body.token || '');
+  if (!token) return res.status(400).json({ error: 'token_required' });
+  if (!masterEq(provided)) return res.status(403).json({ error: 'invalid_master_password' });
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  try {
+    const r = await signalingFetch('/admin/disclosure-export?token=' + encodeURIComponent(token));
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      return res.status(r.status).json(j);
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="volaura-disclosure-${Date.now()}.txt"`);
+    res.send(buf);
+  } catch (e) {
+    console.error('[disclosure-export] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable' });
+  }
+});
+
 // Mesaj export — txt indirme. Master parola query param yerine POST body ile gelir.
 app.post('/api/admin/master-export-messages', requireAdmin, async (req, res) => {
   const provided = String(req.body && req.body.masterPassword || '');

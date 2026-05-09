@@ -71,6 +71,11 @@ function verifyTotp(secretBase32, token) {
 const norm = (s) => String(s || '').trim().toLowerCase();
 const BASE_URL = (process.env.BASE_URL || 'https://volaura.qzz.io:8444').replace(/\/$/, '');
 
+// E2E disclosure (break-glass) için OWNER e-postası. Onay e-postaları buraya gider.
+// .env'de OWNER_EMAIL ayarlı değilse, ilk admin kullanıcının e-postası kullanılır.
+const OWNER_EMAIL = (process.env.OWNER_EMAIL || '').trim();
+const DISCLOSURE_MIN_GAP_MS = 60 * 1000; // İki onay arası minimum 60 sn
+
 function hashPassword(password, salt) {
     return crypto.scryptSync(String(password), salt, 32).toString('hex');
 }
@@ -173,6 +178,22 @@ async function handleHttpRequest(req, res) {
         }
         if (req.method === 'POST' && u.pathname === '/approve-message-access') {
             return handleApprovePagePost(req, res);
+        }
+        // ====== E2E Disclosure (break-glass, çift master onayı) ======
+        if (req.method === 'POST' && u.pathname === '/admin/disclosure-request') {
+            return handleDisclosureRequest(req, res);
+        }
+        if (req.method === 'GET' && u.pathname === '/admin/disclosure-list') {
+            return handleDisclosureList(req, res);
+        }
+        if (req.method === 'GET' && u.pathname === '/admin/disclosure-export') {
+            return handleDisclosureExport(req, res, u.query);
+        }
+        if (req.method === 'GET'  && u.pathname === '/confirm-disclosure') {
+            return handleDisclosureConfirmGet(req, res, u.query);
+        }
+        if (req.method === 'POST' && u.pathname === '/confirm-disclosure') {
+            return handleDisclosureConfirmPost(req, res);
         }
         return sendHtml(res, 404, mailer.shellHtml('Bulunamadı',
             `<h2 style="color:#f4f7ff;">404</h2><p>Sayfa bulunamadı.</p>`));
@@ -588,6 +609,326 @@ async function handleApprovePagePost(req, res) {
         : `<h2 style="color:#fca5a5;margin:6px 0 10px 0;">✗ Reddettin</h2>
            <p>Talep iptal edildi. Hesabını koruma altına almak için şifreni güncellemeyi düşünebilirsin.</p>`;
     return sendHtml(res, 200, mailer.shellHtml('Karar kaydedildi', message));
+}
+
+// ============================================================
+//   E2E Disclosure (Break-Glass) — çift master parola onayı
+// ------------------------------------------------------------
+// 1) Admin master parola + gerekçe ile tetikler → OWNER e-mail.
+// 2) Owner linke tıklar → master parola gir → 1. onay.
+// 3) 60 sn beklemeden sonra → master parola tekrar gir → 2. onay.
+// 4) Status='approved' → admin tek seferlik export çağrısı yapar.
+// ============================================================
+function reqIp(req) {
+    try {
+        const xfwd = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+        return xfwd || (req.socket && req.socket.remoteAddress) || '';
+    } catch { return ''; }
+}
+
+async function resolveOwnerEmail() {
+    if (OWNER_EMAIL) return OWNER_EMAIL;
+    // Fallback: ilk admin (id=1) kullanıcının e-postası
+    try {
+        const u = await db.findUserById(1);
+        return (u && u.email) || '';
+    } catch { return ''; }
+}
+
+async function handleDisclosureRequest(req, res) {
+    if (!checkMasterKey(req)) return sendJson(res, 401, { error: 'unauthorized' });
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch { return sendJson(res, 400, { error: 'bad_json' }); }
+
+    const username = String(body.username || '').trim();
+    const reason   = String(body.reason || '').trim();
+    if (!username) return sendJson(res, 400, { error: 'username_required' });
+    if (reason.length < 10) return sendJson(res, 400, { error: 'reason_too_short' });
+    if (reason.length > 1000) return sendJson(res, 400, { error: 'reason_too_long' });
+
+    try {
+        const target = await db.findUserByUsername(username);
+        if (!target) return sendJson(res, 404, { error: 'user_not_found' });
+        const ownerEmail = await resolveOwnerEmail();
+        if (!ownerEmail) return sendJson(res, 500, { error: 'owner_email_not_configured' });
+
+        const token = makeToken();
+        const grant = await db.createDisclosureRequest({
+            userId: target.id, token, reason,
+            ipInitiator: reqIp(req), ttlHours: 24,
+        });
+        const confirmUrl = `${BASE_URL}/confirm-disclosure?token=${encodeURIComponent(token)}`;
+
+        const tpl = mailer.disclosureRequestEmail({
+            targetUserName: target.username,
+            reason,
+            confirmUrl,
+            ipInitiator: reqIp(req),
+        });
+        mailer.sendMail({ to: ownerEmail, ...tpl }).catch((e) => {
+            console.warn('[disclosure] e-posta hatası:', e && e.message);
+        });
+
+        sendJson(res, 200, {
+            ok: true,
+            token,
+            status: grant.status,
+            ownerEmailMasked: maskEmail(ownerEmail),
+            target: { username: target.username },
+        });
+    } catch (e) {
+        console.error('[disclosure] request hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
+}
+
+async function handleDisclosureList(req, res) {
+    if (!checkMasterKey(req)) return sendJson(res, 401, { error: 'unauthorized' });
+    try {
+        const rows = await db.listDisclosureRequests();
+        const safe = rows.map(r => ({
+            id: r.id, token: r.token, status: r.status, reason: r.reason,
+            createdAt: r.created_at, expiresAt: r.expires_at,
+            firstAt: r.first_confirmed_at, secondAt: r.second_confirmed_at,
+            usedAt: r.used_at,
+            user: { username: r.username, emailMasked: maskEmail(r.email) },
+        }));
+        sendJson(res, 200, { requests: safe });
+    } catch (e) {
+        console.error('[disclosure] list hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
+}
+
+async function handleDisclosureConfirmGet(req, res, q) {
+    const token = String(q.token || '');
+    if (!token) {
+        return sendHtml(res, 400, mailer.shellHtml('Geçersiz', `<h2 style="color:#ff9da8;">Eksik token</h2>`));
+    }
+    const r = await db.findDisclosureRequest(token);
+    if (!r) {
+        return sendHtml(res, 404, mailer.shellHtml('Bulunamadı', `<h2 style="color:#ff9da8;">Talep bulunamadı</h2>`));
+    }
+    if (new Date(r.expires_at).getTime() < Date.now()) {
+        return sendHtml(res, 410, mailer.shellHtml('Süresi dolmuş', `<h2 style="color:#ff9da8;">Talep süresi dolmuş</h2>`));
+    }
+    return renderDisclosurePage(res, r, '');
+}
+
+async function handleDisclosureConfirmPost(req, res) {
+    const body = await readBody(req);
+    const params = new url.URLSearchParams(body);
+    const token   = String(params.get('token') || '');
+    const action  = String(params.get('action') || '').toLowerCase();
+    const masterPwd = String(params.get('masterPassword') || '');
+    if (!token) return sendHtml(res, 400, mailer.shellHtml('Geçersiz', `<h2>Eksik token</h2>`));
+
+    const r = await db.findDisclosureRequest(token);
+    if (!r) return sendHtml(res, 404, mailer.shellHtml('Bulunamadı', `<h2>Talep yok</h2>`));
+    if (new Date(r.expires_at).getTime() < Date.now()) {
+        return sendHtml(res, 410, mailer.shellHtml('Süresi dolmuş', `<h2>Süresi dolmuş</h2>`));
+    }
+
+    if (action === 'deny') {
+        await db.denyDisclosureRequest(token);
+        return sendHtml(res, 200, mailer.shellHtml('Reddedildi',
+            `<h2 style="color:#fca5a5;">✗ Talep reddedildi</h2><p>Bu pencereyi kapatabilirsin.</p>`));
+    }
+
+    // Master parola karşılaştırması (timing-safe)
+    const ok = timingSafeEq(masterPwd, getMasterKey());
+    if (!ok) return renderDisclosurePage(res, r, 'Master parola hatalı.');
+
+    if (action === 'first') {
+        if (r.status !== 'pending_first') {
+            return renderDisclosurePage(res, r, 'Bu adım zaten geçildi veya geçersiz.');
+        }
+        const updated = await db.advanceDisclosureRequest(token, 'pending_first', 'pending_second', reqIp(req));
+        if (!updated) return renderDisclosurePage(res, r, 'Adım ilerletilemedi.');
+        return renderDisclosurePage(res, updated, '');
+    }
+    if (action === 'second') {
+        if (r.status !== 'pending_second') {
+            return renderDisclosurePage(res, r, 'Henüz 1. onay tamamlanmamış.');
+        }
+        // 60 sn bekleme
+        const t1 = r.first_confirmed_at ? new Date(r.first_confirmed_at).getTime() : 0;
+        if (Date.now() - t1 < DISCLOSURE_MIN_GAP_MS) {
+            return renderDisclosurePage(res, r, '60 saniye geçmeden 2. onay verilemez. Lütfen bekle.');
+        }
+        const updated = await db.advanceDisclosureRequest(token, 'pending_second', 'approved', reqIp(req));
+        if (!updated) return renderDisclosurePage(res, r, 'Adım ilerletilemedi.');
+        return renderDisclosurePage(res, updated, '');
+    }
+    return renderDisclosurePage(res, r, 'Geçersiz aksiyon.');
+}
+
+function renderDisclosurePage(res, r, errMsg) {
+    const safeToken = mailer.escapeHtml(r.token);
+    const safeUser  = mailer.escapeHtml(r.username);
+    const safeReas  = mailer.escapeHtml(r.reason);
+    const safeErr   = errMsg ? `<div style="background:#7f1d1d;color:#fee2e2;padding:10px 14px;border-radius:8px;margin:12px 0;">${mailer.escapeHtml(errMsg)}</div>` : '';
+
+    let stepBody = '';
+    if (r.status === 'pending_first') {
+        stepBody = `
+            <div class="step active">1. Onay <span style="color:#fcd34d;">⏳</span></div>
+            <div class="step">2. Onay (60 sn sonra)</div>
+            <div class="step">Export hakkı</div>
+            <form method="POST" action="/confirm-disclosure" style="margin-top:18px;">
+              <input type="hidden" name="token" value="${safeToken}">
+              <input type="hidden" name="action" value="first">
+              <label style="display:block;color:#cfd6e4;margin-bottom:6px;">Master Parola (1. kez)</label>
+              <input type="password" name="masterPassword" autocomplete="off" required
+                     style="width:100%;padding:11px 12px;border:1px solid #374151;border-radius:8px;background:#0b0d12;color:#f4f7ff;">
+              <div style="display:flex;gap:10px;margin-top:14px;">
+                <button type="submit" style="flex:1;padding:12px;border:none;border-radius:8px;background:#dc2626;color:white;font-weight:700;cursor:pointer;">
+                    🔓 1. Onayı ver
+                </button>
+                <button type="submit" name="action" value="deny" formnovalidate
+                        style="flex:1;padding:12px;border:1px solid #4b5563;border-radius:8px;background:transparent;color:#fca5a5;font-weight:700;cursor:pointer;">
+                    Reddet
+                </button>
+              </div>
+            </form>`;
+    } else if (r.status === 'pending_second') {
+        const t1 = new Date(r.first_confirmed_at).getTime();
+        const remain = Math.max(0, Math.ceil((t1 + DISCLOSURE_MIN_GAP_MS - Date.now()) / 1000));
+        stepBody = `
+            <div class="step done">1. Onay ✓</div>
+            <div class="step active">2. Onay <span style="color:#fcd34d;">⏳</span></div>
+            <div class="step">Export hakkı</div>
+            <form method="POST" action="/confirm-disclosure" style="margin-top:18px;" id="form2">
+              <input type="hidden" name="token" value="${safeToken}">
+              <input type="hidden" name="action" value="second">
+              <label style="display:block;color:#cfd6e4;margin-bottom:6px;">Master Parola (2. kez)</label>
+              <input type="password" name="masterPassword" autocomplete="off" required
+                     style="width:100%;padding:11px 12px;border:1px solid #374151;border-radius:8px;background:#0b0d12;color:#f4f7ff;">
+              <div style="display:flex;gap:10px;margin-top:14px;">
+                <button id="btn2" type="submit" ${remain > 0 ? 'disabled' : ''}
+                        style="flex:1;padding:12px;border:none;border-radius:8px;background:#dc2626;color:white;font-weight:700;cursor:pointer;${remain > 0 ? 'opacity:0.5;cursor:not-allowed;' : ''}">
+                    ${remain > 0 ? `⏳ ${remain} sn bekle` : '🔓 2. ve Final Onay'}
+                </button>
+                <button type="submit" name="action" value="deny" formnovalidate
+                        style="flex:1;padding:12px;border:1px solid #4b5563;border-radius:8px;background:transparent;color:#fca5a5;font-weight:700;cursor:pointer;">
+                    Reddet
+                </button>
+              </div>
+            </form>
+            ${remain > 0 ? `<script>
+              let remain = ${remain};
+              const btn = document.getElementById('btn2');
+              const t = setInterval(() => {
+                remain--;
+                if (remain <= 0) {
+                  clearInterval(t);
+                  btn.disabled = false;
+                  btn.style.opacity = '1';
+                  btn.style.cursor = 'pointer';
+                  btn.textContent = '🔓 2. ve Final Onay';
+                } else {
+                  btn.textContent = '⏳ ' + remain + ' sn bekle';
+                }
+              }, 1000);
+            </script>` : ''}`;
+    } else if (r.status === 'approved') {
+        stepBody = `
+            <div class="step done">1. Onay ✓</div>
+            <div class="step done">2. Onay ✓</div>
+            <div class="step active">Export hakkı aktif</div>
+            <p style="color:#22c55e;font-size:14px;margin-top:14px;">
+                ✓ Çift onay tamamlandı. Admin paneline geç ve <b>tek seferlik</b> .txt indirmesini yap.
+            </p>`;
+    } else if (r.status === 'used') {
+        stepBody = `<p style="color:#9ca3af;">Bu talep zaten kullanıldı (export indirildi).</p>`;
+    } else if (r.status === 'denied') {
+        stepBody = `<p style="color:#fca5a5;">✗ Bu talep reddedildi.</p>`;
+    } else {
+        stepBody = `<p>Durum: ${mailer.escapeHtml(r.status)}</p>`;
+    }
+
+    const html = mailer.shellHtml('E2E Disclosure — Break-Glass', `
+        <style>
+          .step { padding: 8px 12px; margin: 6px 0; border-radius: 8px; background: #1f2937; color: #9ca3af; font-size: 13px; }
+          .step.active { background: #7f1d1d; color: #fef2f2; font-weight: 700; }
+          .step.done { background: #064e3b; color: #6ee7b7; }
+        </style>
+        <h2 style="color:#fca5a5;margin:6px 0 10px 0;">🚨 E2E Mesaj Açma — Break-Glass</h2>
+        <div style="background:#1f2937;border-left:3px solid #dc2626;padding:10px 14px;border-radius:6px;margin-bottom:14px;">
+          <div style="color:#cfd6e4;font-size:13px;"><b>Hedef:</b> ${safeUser}</div>
+          <div style="color:#cfd6e4;font-size:13px;"><b>Gerekçe:</b> ${safeReas}</div>
+        </div>
+        ${safeErr}
+        ${stepBody}
+    `);
+    return sendHtml(res, 200, html);
+}
+
+async function handleDisclosureExport(req, res, q) {
+    if (!checkMasterKey(req)) return sendJson(res, 401, { error: 'unauthorized' });
+    const token = String(q.token || '');
+    if (!token) return sendJson(res, 400, { error: 'token_required' });
+    try {
+        const grant = await db.consumeDisclosureRequest(token);
+        if (!grant) {
+            const peek = await db.findDisclosureRequest(token);
+            if (!peek) return sendJson(res, 404, { error: 'not_found' });
+            return sendJson(res, 403, { error: 'not_approved_or_expired', status: peek.status });
+        }
+        // Mesajları topla — E2E olanlar ciphertext olarak yer alır (server gerçek
+        // anahtarı bilmediği için decrypt edemez; bu adli kayıt amacına yöneliktir).
+        const sentChan = await db.pool.query(
+            `SELECT m.id, m.created_at, c.name AS channel_name, s.name AS server_name, m.content
+               FROM messages m
+               JOIN channels c ON c.id = m.channel_id
+               JOIN servers  s ON s.id = c.server_id
+              WHERE m.user_id = $1
+              ORDER BY m.created_at ASC`, [grant.user_id]);
+        const dms = await db.pool.query(
+            `SELECT dm.id, dm.created_at,
+                    s.username AS from_user, r.username AS to_user,
+                    dm.content, dm.is_encrypted, dm.nonce, dm.sender_pub
+               FROM direct_messages dm
+               JOIN users s ON s.id = dm.sender_id
+               JOIN users r ON r.id = dm.recipient_id
+              WHERE (dm.sender_id = $1 OR dm.recipient_id = $1)
+                AND dm.deleted_at IS NULL
+              ORDER BY dm.created_at ASC`, [grant.user_id]);
+
+        const u = await db.findUserById(grant.user_id);
+        let txt = `# VoLaura Mesaj Export — BREAK-GLASS (E2E DISCLOSURE)\n`;
+        txt += `# Talep token: ${grant.token}\n`;
+        txt += `# Hedef kullanıcı: ${u.username} (#${u.id})  E-posta: ${u.email}\n`;
+        txt += `# Gerekçe: ${grant.reason}\n`;
+        txt += `# 1. Onay: ${grant.first_confirmed_at}  IP: ${grant.ip_first || '-'}\n`;
+        txt += `# 2. Onay: ${grant.second_confirmed_at} IP: ${grant.ip_second || '-'}\n`;
+        txt += `# Üretildi: ${new Date().toISOString()}\n`;
+        txt += `# UYARI: E2E şifrelenmiş içerik base64 ciphertext olarak verilmiştir;\n`;
+        txt += `#        kullanıcının özel anahtarı sunucuda yok, içerik açılamaz.\n\n`;
+        txt += `=== KANAL MESAJLARI (${sentChan.rowCount}) ===\n`;
+        for (const m of sentChan.rows) {
+            txt += `[${new Date(m.created_at).toISOString()}] ${m.server_name} #${m.channel_name}: ${m.content}\n`;
+        }
+        txt += `\n=== DOĞRUDAN MESAJLAR (${dms.rowCount}) ===\n`;
+        for (const m of dms.rows) {
+            const tag = m.is_encrypted ? '[E2E-CIPHER]' : '[plain]';
+            txt += `[${new Date(m.created_at).toISOString()}] ${tag} ${m.from_user} → ${m.to_user}: ${m.content}\n`;
+            if (m.is_encrypted) {
+                if (m.nonce)      txt += `   nonce: ${m.nonce}\n`;
+                if (m.sender_pub) txt += `   sender_pub: ${m.sender_pub}\n`;
+            }
+        }
+        const fname = `volaura-disclosure-${u.username}-${Date.now()}.txt`;
+        res.writeHead(200, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${fname}"`,
+        });
+        res.end(txt);
+    } catch (e) {
+        console.error('[disclosure] export hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
 }
 
 async function handleResetGet(req, res, q) {

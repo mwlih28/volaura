@@ -341,15 +341,156 @@ function loadMessages() {
   loadGrantList();
 }
 
-// Mode switcher (Kullanıcı Onayı / Master Parola)
+// Mode switcher (Kullanıcı Onayı / Master Parola / Break-Glass)
 document.addEventListener('click', (e) => {
   const t = e.target.closest('.mode-tab');
   if (!t) return;
   document.querySelectorAll('.mode-tab').forEach(b => b.classList.toggle('active', b === t));
   const mode = t.dataset.mode;
-  $('#modeGrant').hidden  = (mode !== 'grant');
-  $('#modeMaster').hidden = (mode !== 'master');
+  $('#modeGrant').hidden      = (mode !== 'grant');
+  $('#modeMaster').hidden     = (mode !== 'master');
+  $('#modeDisclosure').hidden = (mode !== 'disclosure');
 });
+
+// --- Break-glass disclosure flow ---
+$('#disclosureRequestForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const masterPassword = $('#discMasterPwd').value;
+  const username = $('#discUsername').value.trim();
+  const reason   = $('#discReason').value.trim();
+  const err = $('#discError');
+  const ok  = $('#discSuccess');
+  err.hidden = ok.hidden = true;
+  if (!masterPassword) { err.textContent = 'Master parola boş.'; err.hidden = false; return; }
+  if (!username) { err.textContent = 'Kullanıcı adı boş.'; err.hidden = false; return; }
+  if (reason.length < 10) { err.textContent = 'Gerekçe en az 10 karakter olmalı.'; err.hidden = false; return; }
+  if (!confirm('Break-glass talebi başlatılacak. Owner e-postasına onay linki gidecek. Devam?')) return;
+
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'Gönderiliyor...';
+  try {
+    const r = await fetch('/api/admin/disclosure-request', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ masterPassword, username, reason }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      err.textContent = data.error === 'invalid_master_password' ? 'Master parola hatalı.'
+                      : data.error === 'user_not_found' ? 'Kullanıcı bulunamadı.'
+                      : data.error === 'reason_too_short' ? 'Gerekçe çok kısa (min 10).'
+                      : data.error === 'owner_email_not_configured' ? 'Owner e-postası yapılandırılmamış (.env: OWNER_EMAIL).'
+                      : 'Hata: ' + (data.error || r.status);
+      err.hidden = false;
+      return;
+    }
+    ok.textContent = `✓ Talep oluşturuldu. Owner e-postasına (${data.ownerEmailMasked}) onay linki gönderildi. İki kere onaylandığında 'Bekleyen Talepler'de approved olarak görüneceksin.`;
+    ok.hidden = false;
+    sessionStorage.setItem('vl_disc_master', masterPassword); // listeyi yenilemek için
+    loadDisclosureList(masterPassword);
+  } catch (e2) {
+    err.textContent = 'Sunucuya ulaşılamadı: ' + e2.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🚨 Break-Glass başlat';
+  }
+});
+
+$('#discRefresh')?.addEventListener('click', () => {
+  const pwd = $('#discMasterPwd').value || sessionStorage.getItem('vl_disc_master') || '';
+  if (!pwd) { alert('Önce master parolayı gir.'); return; }
+  loadDisclosureList(pwd);
+});
+
+async function loadDisclosureList(masterPassword) {
+  const el = $('#discList');
+  if (!el) return;
+  el.innerHTML = '<p class="muted">Yükleniyor...</p>';
+  try {
+    const r = await fetch('/api/admin/disclosure-list', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ masterPassword }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      el.innerHTML = '<p class="muted">Liste yüklenemedi: ' + escapeHtml(data.error || r.status) + '</p>';
+      return;
+    }
+    const reqs = data.requests || [];
+    if (!reqs.length) {
+      el.innerHTML = '<p class="muted">Aktif talep yok.</p>';
+      return;
+    }
+    const rows = reqs.map(g => {
+      const created = new Date(g.createdAt).toLocaleString('tr-TR');
+      const statusBadge = {
+        pending_first:  '<span class="tag warn">⏳ 1. onay bekliyor</span>',
+        pending_second: '<span class="tag warn">⏳ 2. onay bekliyor</span>',
+        approved:       '<span class="tag ok">✓ Onaylandı (export hazır)</span>',
+        denied:         '<span class="tag bad">✗ Reddedildi</span>',
+        used:           '<span class="tag muted-tag">Kullanıldı</span>',
+        expired:        '<span class="tag muted-tag">Süresi dolmuş</span>',
+      }[g.status] || g.status;
+      const action = g.status === 'approved'
+        ? `<button class="btn primary sm" data-disc-export="${escapeHtml(g.token)}" style="background:#dc2626;">📥 .txt indir (tek seferlik)</button>`
+        : '';
+      return `
+        <div class="grant-row">
+          <div class="grant-meta">
+            <div class="grant-user">${escapeHtml(g.user.username)} <span class="muted">${escapeHtml(g.user.emailMasked)}</span></div>
+            <div class="grant-info">
+              ${statusBadge}
+              <span class="muted small">${created}</span>
+            </div>
+            <div class="muted small" style="margin-top:6px;font-style:italic;">"${escapeHtml((g.reason || '').slice(0, 200))}"</div>
+          </div>
+          <div>${action}</div>
+        </div>`;
+    }).join('');
+    el.innerHTML = rows;
+
+    el.querySelectorAll('[data-disc-export]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const token = b.dataset.discExport;
+        const pwd = $('#discMasterPwd').value || sessionStorage.getItem('vl_disc_master') || '';
+        if (!pwd) { alert('Master parola gerekli.'); return; }
+        if (!confirm('Bu talep TEK SEFERLİK kullanılacak. .txt indirildikten sonra tekrar kullanılamaz. Devam?')) return;
+        b.disabled = true;
+        b.textContent = 'İndiriliyor...';
+        try {
+          const r = await fetch('/api/admin/disclosure-export', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ masterPassword: pwd, token }),
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            toast('İndirilemedi: ' + (j.error || r.status), 'error');
+            return;
+          }
+          const blob = await r.blob();
+          const u = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = u; a.download = `volaura-disclosure-${Date.now()}.txt`;
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(u);
+          toast('✓ Disclosure export indirildi', 'success');
+          loadDisclosureList(pwd);
+        } catch (e) {
+          toast('Hata: ' + e.message, 'error');
+        } finally {
+          b.disabled = false;
+          b.textContent = '📥 .txt indir (tek seferlik)';
+        }
+      });
+    });
+  } catch (e) {
+    el.innerHTML = '<p class="muted">Hata: ' + escapeHtml(e.message) + '</p>';
+  }
+}
 
 // --- Grant request flow (kullanıcı onaylı) ---
 $('#grantRequestForm')?.addEventListener('submit', async (e) => {

@@ -138,6 +138,29 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_mag_user   ON message_access_grants(user_id);
     CREATE INDEX IF NOT EXISTS idx_mag_status ON message_access_grants(status);
 
+    -- E2E mesaj açma "break-glass" istekleri.
+    -- Çift-onay süreci: master parola ile tetiklenir → owner e-mail'den iki kere
+    -- master parola ile onaylar → 1 saatlik tek-seferlik export hakkı.
+    -- Sadece olağanüstü durumlar için (ör. siber suçlar mahkeme kararı).
+    CREATE TABLE IF NOT EXISTS e2e_disclosure_requests (
+        id BIGSERIAL PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending_first'
+            CHECK (status IN ('pending_first','pending_second','approved','denied','used','expired')),
+        ip_initiator TEXT,
+        ip_first TEXT,
+        ip_second TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        first_confirmed_at TIMESTAMPTZ,
+        second_confirmed_at TIMESTAMPTZ,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_edr_user   ON e2e_disclosure_requests(user_id);
+    CREATE INDEX IF NOT EXISTS idx_edr_status ON e2e_disclosure_requests(status);
+
     -- 2FA "30 gün bu cihaza güven" tokenları.
     -- 2FA başarılı olunca bu cihaz için sha256(token_hash) kaydedilir; 30 gün
     -- içinde aynı cihazdan girişte 2FA atlanır.
@@ -768,6 +791,10 @@ module.exports = {
     createMessageAccessGrant, findMessageAccessGrant,
     decideMessageAccessGrant, consumeMessageAccessGrant,
     listPendingMessageAccessGrants, purgeExpiredMessageAccessGrants,
+    // E2E disclosure (çift-onay break-glass)
+    createDisclosureRequest, findDisclosureRequest,
+    advanceDisclosureRequest, consumeDisclosureRequest,
+    listDisclosureRequests, denyDisclosureRequest,
     // Parolasız giriş kodları
     createPasswordlessCode, consumePasswordlessCode, expirePasswordlessCodes,
     // E2E DM public key
@@ -920,6 +947,79 @@ async function purgeExpiredMessageAccessGrants() {
           WHERE expires_at < NOW() AND status = 'pending'`);
     await pool.query(
         `DELETE FROM message_access_grants WHERE expires_at < NOW() - INTERVAL '7 days'`);
+}
+
+// =================== E2E Disclosure (Break-glass) ===================
+// Çift-onay süreci: pending_first → pending_second → approved → used.
+// Her adımda master parola ayrı ayrı doğrulanır + ikinci adım için
+// minimum bekleme süresi (server.js içinde 60 sn) aranır.
+async function createDisclosureRequest({ userId, token, reason, ipInitiator, ttlHours = 24 }) {
+    const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+    const r = await pool.query(
+        `INSERT INTO e2e_disclosure_requests
+            (token, user_id, reason, ip_initiator, expires_at)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [token, userId, reason, ipInitiator || null, expiresAt]);
+    return r.rows[0];
+}
+async function findDisclosureRequest(token) {
+    const r = await pool.query(
+        `SELECT d.*, u.username, u.email
+           FROM e2e_disclosure_requests d
+           JOIN users u ON u.id = d.user_id
+          WHERE d.token = $1 LIMIT 1`, [token]);
+    return r.rows[0] || null;
+}
+// Adımı ilerlet: from='pending_first' → to='pending_second' (first_confirmed_at = NOW)
+//                from='pending_second' → to='approved'      (second_confirmed_at = NOW)
+async function advanceDisclosureRequest(token, fromStatus, toStatus, ip) {
+    const colMap = {
+        pending_second: 'first_confirmed_at',
+        approved:       'second_confirmed_at',
+    };
+    const ipColMap = {
+        pending_second: 'ip_first',
+        approved:       'ip_second',
+    };
+    const tsCol = colMap[toStatus];
+    const ipCol = ipColMap[toStatus];
+    if (!tsCol || !ipCol) return null;
+    const r = await pool.query(
+        `UPDATE e2e_disclosure_requests
+            SET status = $3, ${tsCol} = NOW(), ${ipCol} = $4
+          WHERE token = $1 AND status = $2 AND expires_at > NOW()
+          RETURNING *`,
+        [token, fromStatus, toStatus, ip || null]);
+    return r.rows[0] || null;
+}
+async function consumeDisclosureRequest(token) {
+    const r = await pool.query(
+        `UPDATE e2e_disclosure_requests
+            SET status = 'used', used_at = NOW()
+          WHERE token = $1 AND status = 'approved'
+            AND expires_at > NOW()
+          RETURNING *`,
+        [token]);
+    return r.rows[0] || null;
+}
+async function denyDisclosureRequest(token) {
+    const r = await pool.query(
+        `UPDATE e2e_disclosure_requests SET status = 'denied'
+          WHERE token = $1 AND status IN ('pending_first','pending_second')
+          RETURNING *`, [token]);
+    return r.rows[0] || null;
+}
+async function listDisclosureRequests() {
+    const r = await pool.query(
+        `SELECT d.id, d.token, d.status, d.reason, d.created_at, d.expires_at,
+                d.first_confirmed_at, d.second_confirmed_at, d.used_at,
+                u.username, u.email
+           FROM e2e_disclosure_requests d
+           JOIN users u ON u.id = d.user_id
+          WHERE d.expires_at > NOW() - INTERVAL '7 days'
+          ORDER BY d.created_at DESC
+          LIMIT 50`);
+    return r.rows;
 }
 
 // =================== Parolasız Giriş Kodları ===================

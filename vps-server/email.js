@@ -332,6 +332,63 @@ function messageAccessRequestEmail({ userName, requestedBy, approveUrl, denyUrl,
     };
 }
 
+// Break-glass: E2E mesaj açma için OWNER'a giden çift-onay e-postası.
+// İki ayrı master-parola onayı + 60 sn bekleme arasıyla.
+function disclosureRequestEmail({ targetUserName, reason, confirmUrl, ipInitiator }) {
+    const safeUser  = escapeHtml(targetUserName);
+    const safeReas  = escapeHtml(reason);
+    const safeIp    = escapeHtml(ipInitiator || 'bilinmiyor');
+    const inner = `
+        <h1 style="margin:0 0 12px 0;font-size:22px;font-weight:700;color:#dc2626;">
+            🚨 KRİTİK: E2E mesaj açma talebi
+        </h1>
+        <p style="margin:0 0 12px 0;color:#374151;">
+            <b>${safeUser}</b> kullanıcısının uçtan uca şifrelenmiş mesajlarına erişim için
+            <b>break-glass</b> akışı tetiklendi.
+        </p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+               style="border:2px solid #dc2626;border-radius:8px;background:#fef2f2;">
+          <tr><td style="padding:14px 16px;color:#7f1d1d;font-size:13.5px;line-height:1.7;">
+            <div><b>Hedef kullanıcı:</b> ${safeUser}</div>
+            <div><b>Gerekçe:</b> ${safeReas}</div>
+            <div><b>Tetikleyen IP:</b> ${safeIp}</div>
+            <div><b>Onay süreci:</b> 2 ayrı master parola onayı + 60 sn bekleme</div>
+          </td></tr>
+        </table>
+        <p style="margin:18px 0 6px 0;color:#1a1a1a;font-weight:700;font-size:14.5px;">
+            Bu talep sen değil misin?
+        </p>
+        <p style="margin:0 0 14px 0;color:#374151;font-size:13.5px;">
+            Linke <b>tıklama</b>. Talep 24 saat sonra otomatik düşer. Şüphelenirsen
+            master parolayı hemen değiştir.
+        </p>
+        <p style="margin:0 0 6px 0;color:#1a1a1a;font-weight:700;font-size:14.5px;">
+            Talebi sen başlattıysan:
+        </p>
+        ${bigButton(confirmUrl, '🔓 Onay sayfasını aç (2 onay gerekir)')}
+        <p style="margin:14px 0 0 0;color:#8b93a7;font-size:12.5px;">
+            ⚠ Sayfa açılınca master parolayı <b>iki kere</b> ardı ardına gireceksin.
+            İlk onayla ikinci onay arasında en az <b>60 saniye</b> beklemen gerekir
+            (kasıtlı yavaşlatma — yanlışlıkla onaylama riskine karşı).
+        </p>`;
+    return {
+        subject: '🚨 VoLaura — E2E mesaj açma onayı (break-glass)',
+        text:
+`E2E mesaj açma talebi (KRİTİK):
+Hedef: ${targetUserName}
+Gerekçe: ${reason}
+Tetikleyen IP: ${ipInitiator || 'bilinmiyor'}
+
+Bu sen değilsen LİNKE TIKLAMA — 24 saat sonra düşer.
+
+Onay sayfası:
+${confirmUrl}
+
+Sayfada master parolayı iki kere gireceksin (60 sn arayla).`,
+        html: emailShell('E2E Mesaj Açma — Break-Glass', inner),
+    };
+}
+
 module.exports = { sendMail, verificationEmail, passwordResetEmail, loginCodeEmail,
-                   newDeviceEmail, messageAccessRequestEmail,
+                   newDeviceEmail, messageAccessRequestEmail, disclosureRequestEmail,
                    shellHtml, emailShell, escapeHtml };
