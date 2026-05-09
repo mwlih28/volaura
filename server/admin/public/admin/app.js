@@ -35,22 +35,37 @@ $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const token = $('#tokenInput').value.trim();
   const err = $('#loginError');
+  const btn = e.target.querySelector('button[type=submit]');
   err.hidden = true;
+  console.log('[login] submit başladı, token uzunluk:', token.length);
+  if (!token) {
+    err.textContent = 'Token boş.';
+    err.hidden = false;
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Giriş yapılıyor…'; }
   try {
     const r = await fetch('/api/admin/login', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token })
     });
+    console.log('[login] status:', r.status);
+    const txt = await r.text();
+    console.log('[login] body:', txt);
     if (!r.ok) {
-      err.textContent = 'Geçersiz giriş bilgisi.';
+      err.textContent = `Geçersiz giriş (HTTP ${r.status}): ${txt}`;
       err.hidden = false;
       return;
     }
+    console.log('[login] başarılı, dashboard açılıyor');
     showDashboard();
   } catch (e) {
+    console.error('[login] hata:', e);
     err.textContent = 'Sunucuya bağlanılamadı: ' + e.message;
     err.hidden = false;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Giriş yap'; }
   }
 });
 

@@ -266,9 +266,17 @@ app.get('/api/admin/messages', requireAdmin, async (_req, res) => {
 });
 
 // ----- Admin SPA static -----
-app.use('/admin', express.static(path.join(ROOT, 'public/admin'), {
+// no-cache: Her deploy sonrası kullanıcı anında yeni JS/HTML'i alsın
+app.use('/admin', (_req, res, next) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+}, express.static(path.join(ROOT, 'public/admin'), {
   index: 'index.html',
-  extensions: ['html']
+  extensions: ['html'],
+  etag: false,
+  lastModified: false
 }));
 
 // Root → admin redirect
