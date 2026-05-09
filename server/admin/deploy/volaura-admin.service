@@ -1,0 +1,17 @@
+[Unit]
+Description=VoLaura Admin & Update Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/volaura-admin
+ExecStart=/usr/bin/node /opt/volaura-admin/server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

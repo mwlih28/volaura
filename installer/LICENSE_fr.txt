@@ -1,0 +1,58 @@
+Contrat de Licence Utilisateur Final VoLaura (CLUF)
+====================================================
+
+Version: 1.1.0
+Date d'effet: 3 mai 2026
+Developpeur: Equipe du Projet VoLaura
+
+1. OCTROI DE LICENCE
+Sous reserve des conditions du present accord, VoLaura accorde a
+l'utilisateur un droit d'utilisation mondial, libre de redevances,
+non transferable et non exclusif, a des fins personnelles ou
+commerciales. La propriete et les droits de propriete intellectuelle
+restent la propriete des developpeurs de VoLaura.
+
+2. RESTRICTIONS D'UTILISATION
+L'utilisateur s'engage a NE PAS:
+  - Soumettre le logiciel a une retro-ingenierie ni tenter d'acceder
+    au code source.
+  - Utiliser le logiciel a des fins illegales, pour des cyberattaques
+    ou pour violer les droits de tiers.
+  - Desactiver, contourner ou tenter de contourner les mecanismes de
+    securite du logiciel.
+
+3. CONFIDENTIALITE ET SECURITE DES DONNEES
+VoLaura repose sur la protection de la vie privee:
+  - Donnees Multimedia: Les donnees de microphone, camera et partage
+    d'ecran ne sont traitees que pendant les appels actifs inities
+    par l'utilisateur.
+  - Transmission: Ces donnees sont transmises de bout en bout ou
+    directement aux participants; elles NE SONT PAS stockees de
+    maniere permanente sur les serveurs de VoLaura.
+  - Donnees de Compte: Les informations collectees pour
+    l'enregistrement et la verification (e-mail, numero de telephone)
+    sont utilisees uniquement pour fournir le service et la securite
+    (OTP/2FA), via SendGrid (e-mail) et Twilio (SMS).
+
+4. EXCLUSION DE GARANTIE ET LIMITATION DE RESPONSABILITE
+  - "En l'etat": Le logiciel est fourni "en l'etat" et "selon
+    disponibilite". Les developpeurs NE GARANTISSENT PAS que le
+    logiciel fonctionnera sans interruption ni erreur.
+  - Limitation: Les developpeurs ne peuvent etre tenus responsables
+    de tout dommage direct, indirect ou accessoire decoulant de
+    l'utilisation, du mesusage ou de la perte de donnees.
+
+5. MODIFICATIONS DU SERVICE
+Les developpeurs se reservent le droit de mettre a jour, modifier ou
+interrompre temporairement / definitivement le service sans preavis.
+
+6. ACCEPTATION ET RESILIATION
+L'installation, la copie ou l'utilisation du logiciel implique
+l'acceptation de toutes les conditions du present accord. En cas de
+violation, VoLaura peut resilier la licence unilateralement.
+
+Conditions completes: https://volaura.xyz/terms
+Politique de confidentialite: https://volaura.xyz/privacy
+Contact:              support@volaura.xyz
+
+(C) 2026 Equipe du Projet VoLaura. Tous droits reserves.

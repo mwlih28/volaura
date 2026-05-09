@@ -1,0 +1,90 @@
+; VoLaura - Inno Setup Kurulum Sihirbazi
+; Tek bir VoLauraSetup.exe uretir.
+; Derleme: iscc installer\installer.iss
+
+#define AppName       "VoLaura"
+#define AppVersion    "1.1.0"
+#define AppPublisher  "VoLaura"
+#define AppURL        "https://volaura.xyz"
+#define AppExeName    "VoLaura.exe"
+
+[Setup]
+AppId={{9E0F3B81-5A2D-4F2C-9A6B-6B6F4F5D2E31}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
+AppPublisher={#AppPublisher}
+AppPublisherURL={#AppURL}
+AppSupportURL={#AppURL}
+AppUpdatesURL={#AppURL}
+VersionInfoVersion={#AppVersion}
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppName} Kurulum
+VersionInfoProductName={#AppName}
+
+DefaultDirName={autopf}\{#AppName}
+DefaultGroupName={#AppName}
+DisableProgramGroupPage=yes
+DisableReadyPage=no
+DisableFinishedPage=no
+AllowNoIcons=yes
+
+OutputDir=..\dist
+OutputBaseFilename=VoLauraSetup
+Compression=lzma2/ultra
+SolidCompression=yes
+
+WizardStyle=modern
+WizardResizable=no
+ShowLanguageDialog=yes
+UsePreviousLanguage=no
+
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequired=admin
+UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayName={#AppName}
+
+; LicenseFile dile gore Code bolumunde set ediliyor (InitializeWizard).
+LicenseFile=LICENSE.txt
+SetupIconFile=..\assets\volaura-logo.ico
+WizardImageFile=wizard-banner.bmp
+WizardSmallImageFile=wizard-small.bmp
+WizardImageAlphaFormat=defined
+
+[Languages]
+Name: "turkish";    MessagesFile: "compiler:Languages\Turkish.isl";   LicenseFile: "LICENSE.txt"
+Name: "english";    MessagesFile: "compiler:Default.isl";              LicenseFile: "LICENSE_en.txt"
+Name: "german";     MessagesFile: "compiler:Languages\German.isl";    LicenseFile: "LICENSE_de.txt"
+Name: "french";     MessagesFile: "compiler:Languages\French.isl";    LicenseFile: "LICENSE_fr.txt"
+Name: "spanish";    MessagesFile: "compiler:Languages\Spanish.isl";   LicenseFile: "LICENSE_es.txt"
+Name: "italian";    MessagesFile: "compiler:Languages\Italian.isl";   LicenseFile: "LICENSE_en.txt"
+Name: "portuguese"; MessagesFile: "compiler:Languages\Portuguese.isl"; LicenseFile: "LICENSE_en.txt"
+Name: "dutch";      MessagesFile: "compiler:Languages\Dutch.isl";     LicenseFile: "LICENSE_en.txt"
+Name: "polish";     MessagesFile: "compiler:Languages\Polish.isl";    LicenseFile: "LICENSE_en.txt"
+Name: "russian";    MessagesFile: "compiler:Languages\Russian.isl";   LicenseFile: "LICENSE_en.txt"
+Name: "ukrainian";  MessagesFile: "compiler:Languages\Ukrainian.isl"; LicenseFile: "LICENSE_en.txt"
+Name: "czech";      MessagesFile: "compiler:Languages\Czech.isl";     LicenseFile: "LICENSE_en.txt"
+
+[Tasks]
+Name: "desktopicon";  Description: "{cm:CreateDesktopIcon}";    GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
+Name: "quicklaunch";  Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Files]
+; Lisans dosyalari (kurulum esnasinda compile-time goster icin LicenseFile param. kullanir)
+Source: "LICENSE.txt";    DestDir: "{app}"; Flags: ignoreversion
+Source: "LICENSE_en.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "LICENSE_de.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "LICENSE_fr.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "LICENSE_es.txt"; DestDir: "{app}"; Flags: ignoreversion
+; windeployqt ile haz\u0131rlanm\u0131\u015f klas\u00f6r
+Source: "..\dist\VoLauraApp\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\{#AppName}";               Filename: "{app}\{#AppExeName}"
+Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}";         Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: quicklaunch
+
+[Run]
+Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

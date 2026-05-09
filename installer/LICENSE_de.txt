@@ -1,0 +1,59 @@
+VoLaura Endbenutzer-Lizenzvertrag (EULA)
+=========================================
+
+Version: 1.1.0
+Gueltig ab: 3. Mai 2026
+Entwickler: VoLaura Projektteam
+
+1. LIZENZGEWAEHRUNG
+VoLaura gewaehrt Ihnen, vorbehaltlich der Bedingungen dieser
+Vereinbarung, ein weltweites, gebuehrenfreies, nicht uebertragbares
+und nicht-exklusives Recht, die Software fuer private oder
+kommerzielle Zwecke zu nutzen. Eigentum und geistige Eigentumsrechte
+verbleiben bei den VoLaura-Entwicklern.
+
+2. NUTZUNGSEINSCHRAENKUNGEN
+Sie verpflichten sich, Folgendes zu unterlassen:
+  - Die Software einer Reverse-Engineering-Analyse zu unterziehen
+    oder zu versuchen, auf den Quellcode zuzugreifen.
+  - Die Software fuer illegale Aktivitaeten, Cyberangriffe oder
+    zur Verletzung von Rechten Dritter zu verwenden.
+  - Die Sicherheitsmechanismen der Software zu deaktivieren oder
+    zu umgehen.
+
+3. DATENSCHUTZ UND DATENSICHERHEIT
+VoLaura legt grossen Wert auf die Privatsphaere der Nutzer:
+  - Mediendaten: Daten von Mikrofon, Kamera und Bildschirmuebertragung
+    werden ausschliesslich waehrend vom Nutzer initiierter aktiver
+    Gespraeche verarbeitet.
+  - Uebertragung: Diese Daten werden Ende-zu-Ende oder direkt an die
+    Gespraechsteilnehmer uebermittelt; sie werden NICHT dauerhaft
+    auf VoLaura-Servern gespeichert.
+  - Kontodaten: Fuer Registrierung und Verifizierung erhobene
+    Informationen (E-Mail, Telefonnummer) werden ausschliesslich zur
+    Bereitstellung des Dienstes und zur Sicherheit (OTP/2FA)
+    verwendet, ueber SendGrid (E-Mail) und Twilio (SMS).
+
+4. GEWAEHRLEISTUNGSAUSSCHLUSS UND HAFTUNGSBESCHRAENKUNG
+  - "Wie Besehen": Die Software wird "wie besehen" und "wie verfuegbar"
+    bereitgestellt. Die Entwickler garantieren NICHT, dass die Software
+    unterbrechungs- oder fehlerfrei funktioniert.
+  - Haftungsausschluss: Die Entwickler haften NICHT fuer direkte,
+    indirekte oder beilaeufige Schaeden aus der Nutzung, dem
+    Missbrauch oder dem Verlust von Daten.
+
+5. AENDERUNGEN DES DIENSTES
+Die Entwickler behalten sich das Recht vor, Funktionen ohne
+Vorankuendigung zu aktualisieren, zu aendern oder den Dienst
+voruebergehend bzw. dauerhaft einzustellen.
+
+6. ANNAHME UND BEENDIGUNG
+Die Installation, das Kopieren oder die Nutzung der Software bedeutet
+die Annahme aller Bedingungen dieser Vereinbarung. Bei Verstoss kann
+VoLaura die Lizenz einseitig kuendigen.
+
+Vollstaendige Bedingungen: https://volaura.xyz/terms
+Datenschutzerklaerung:     https://volaura.xyz/privacy
+Kontakt:                   support@volaura.xyz
+
+(C) 2026 VoLaura Projektteam. Alle Rechte vorbehalten.

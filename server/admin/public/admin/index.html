@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VoLaura Admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login screen -->
+<section id="login" class="login-wrap">
+  <div class="login-card">
+    <div class="logo-orb">V</div>
+    <h1>VoLaura Admin</h1>
+    <p class="muted">Yönetim paneline erişmek için <b>admin token</b>'ı gir.</p>
+    <form id="loginForm">
+      <input type="password" id="tokenInput" placeholder="Admin token (uzun rastgele dize)" autocomplete="current-password" required>
+      <button type="submit" class="btn primary">Giriş yap</button>
+      <p id="loginError" class="error" hidden></p>
+    </form>
+    <p class="hint">Token <code>server/admin/.env</code> içinde tanımlı (<code>ADMIN_TOKEN</code>).</p>
+  </div>
+</section>
+
+<!-- Dashboard -->
+<section id="dashboard" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo-orb sm">V</span>
+      <span class="brand-name">VoLaura Admin</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="releases">📦 Sürümler</button>
+      <button class="tab" data-tab="notifs">🔔 Bildirimler</button>
+      <button class="tab" data-tab="users">👥 Kullanıcılar</button>
+      <button class="tab" data-tab="messages">💬 Mesajlar</button>
+    </nav>
+    <div class="actions">
+      <button id="logoutBtn" class="btn ghost">Çıkış</button>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- RELEASES TAB -->
+    <div class="tab-panel" id="tab-releases">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Yeni Sürüm Yükle</h2>
+          <p class="muted">Inno Setup tarafından üretilmiş <code>.exe</code> dosyasını yükle. Yüklendiğinde tüm istemcilere otomatik bildirim gider.</p>
+        </div>
+        <form id="uploadForm" class="upload-form">
+          <div class="row">
+            <label>Versiyon (semver)</label>
+            <input type="text" name="version" placeholder="örn: 1.2.0" required pattern="^\d+\.\d+\.\d+(?:[-+][\w.]+)?$">
+          </div>
+          <div class="row">
+            <label>Notlar (kullanıcılara gösterilecek)</label>
+            <textarea name="notes" rows="4" placeholder="• Ekran paylaşımı 120 FPS&#10;• Per-user volume kontrolü&#10;• Çıkış akışı yenilendi"></textarea>
+          </div>
+          <div class="row">
+            <label>Setup dosyası (.exe)</label>
+            <input type="file" name="file" accept=".exe" required>
+          </div>
+          <div class="row inline">
+            <label class="check">
+              <input type="checkbox" name="isLatest" checked>
+              <span>Bu sürümü "latest" olarak işaretle (kullanıcılara bildirim gider)</span>
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn primary" type="submit">⬆️ Yükle</button>
+            <progress id="uploadProgress" max="100" value="0" hidden></progress>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Tüm Sürümler</h2>
+          <button class="btn ghost sm" id="refreshReleases">↻ Yenile</button>
+        </div>
+        <div id="releasesList" class="release-list"></div>
+      </div>
+    </div>
+
+    <!-- NOTIFS TAB -->
+    <div class="tab-panel" id="tab-notifs" hidden>
+      <div class="panel">
+        <div class="panel-head"><h2>Bildirim Yayınla</h2></div>
+        <form id="notifForm" class="upload-form">
+          <div class="row">
+            <label>Tür</label>
+            <select name="type">
+              <option value="announcement">📢 Duyuru</option>
+              <option value="update">🚀 Güncelleme</option>
+              <option value="warning">⚠️ Uyarı</option>
+              <option value="event">🎉 Etkinlik</option>
+            </select>
+          </div>
+          <div class="row"><label>Başlık</label><input type="text" name="title" required></div>
+          <div class="row"><label>İçerik</label><textarea name="body" rows="3"></textarea></div>
+          <div class="row"><label>Süre (gün, boş = süresiz)</label><input type="number" name="expiresInDays" min="1"></div>
+          <div class="row"><button class="btn primary" type="submit">📨 Gönder</button></div>
+        </form>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Aktif Bildirimler</h2><button class="btn ghost sm" id="refreshNotifs">↻ Yenile</button></div>
+        <div id="notifsList" class="notif-list"></div>
+      </div>
+    </div>
+
+    <!-- USERS TAB -->
+    <div class="tab-panel" id="tab-users" hidden>
+      <div class="panel"><div class="panel-head"><h2>Kullanıcılar</h2></div>
+        <div id="usersBody" class="empty">Yükleniyor...</div>
+      </div>
+    </div>
+
+    <!-- MESSAGES TAB -->
+    <div class="tab-panel" id="tab-messages" hidden>
+      <div class="panel"><div class="panel-head"><h2>Mesajlar</h2></div>
+        <div id="msgsBody" class="empty">Yükleniyor...</div>
+      </div>
+    </div>
+
+  </main>
+</section>
+
+<!-- Toast -->
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+build/
+.vs/
+.vscode/
+*.user
+*.exe
+*.dll
+*.so
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.autosave
+*.swp
+*.swo
+*~
+.DS_Store
+node_modules/
+vps-server/node_modules/
+
+# Secrets — ASLA commit edilmez
+vps-server/env.production
+vps-server/.env
+vps-server/*.env
+_deploy/deploy.js
+_deploy/redeploy.js
+_deploy/redeploy_logo.js
+**/.env
+**/*.env.production
+**/*credentials*
+
+# ==== KAZA LE COMMIT EDLMEMEL ====
+vps_info*.txt
+ssh_test.txt
+env_keys.txt
+probe.txt
+
+# Build logs & junk
+build.log
+build_latest.log
+build_errors.txt
+build_out.*
+pkg.log
+*.log
+
+# Batch scripts (path/credential içerebilir)
+build.bat
+run.bat
+package.bat
+deploy.bat
+setup-ssl.bat
+
+# VPS-specific
+vps-server/deploy.bat
+vps-server/setup-ssl.bat

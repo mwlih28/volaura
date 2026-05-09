@@ -1,0 +1,58 @@
+VoLaura Son Kullanici Lisans Sozlesmesi (EULA)
+===============================================
+
+Surum: 1.1.0
+Yururluk Tarihi: 3 Mayis 2026
+Gelistirici: VoLaura Proje Ekibi
+
+1. LISANS VERILMESI
+VoLaura, isbu sozlesme kosullarina uyulmasi kaydiyla; yazilimin
+kisisel veya ticari amaclarla, dunya capinda, telifsiz, devredilemez
+ve munhasir olmayan kullanim hakkini kullaniciya tanir. Yazilimin
+mulkiyeti ve fikri mulkiyet haklari VoLaura gelistiricilerine aittir.
+
+2. KULLANIM KISITLAMALARI
+Kullanici asagidakileri yapmayacagini kabul eder:
+  - Yazilimi tersine muhendislik (reverse engineering) islemlerine
+    tabi tutmak veya kaynak koduna erismeye calismak.
+  - Yazilimi yasa disi faaliyetler, siber saldirilar veya ucuncu
+    sahislarin haklarini ihlal edecek sekilde kullanmak.
+  - Yazilimin guvenlik onlemlerini devre disi birakmak veya asmaya
+    calismak.
+
+3. GIZLILIK VE VERI GUVENLIGI
+VoLaura, kullanici gizliligini temel alir:
+  - Medya Verileri: Mikrofon, kamera ve ekran goruntusu verileri
+    sadece kullanici tarafindan baslatilan aktif gorusmeler sirasinda
+    islenir.
+  - Iletim: Bu veriler uctan uca veya dogrudan katilimcilara iletilir;
+    VoLaura sunucularinda kalici olarak saklanmaz veya depolanmaz.
+  - Hesap Verileri: Kayit ve dogrulama amaciyla toplanan e-posta
+    veya telefon numarasi gibi bilgiler, sadece hizmetin sunulmasi
+    ve guvenlik (OTP/2FA) amaciyla kullanilir; SendGrid (e-posta) ve
+    Twilio (SMS) servisleri uzerinden gonderim yapilir.
+
+4. GARANTI REDDI VE SORUMLULUK SINIRLAMASI
+  - "Oldugu Gibi": Yazilim "oldugu gibi" (as is) ve "mevcut oldugu
+    surece" sunulmaktadir. Gelistiriciler, yazilimin kesintisiz veya
+    hatasiz calisacagini garanti etmez.
+  - Zararlardan Muafiyet: Yazilimin kullanimindan, hatali kullanimindan
+    veya veri kayiplarindan dogabilecek dogrudan, dolayli veya
+    tesadufi hicbir zarardan gelistirici ekip sorumlu tutulamaz.
+
+5. HIZMET DEGISIKLIKLERI
+Gelistiriciler, onceden haber vermeksizin yazilim ozelliklerini
+guncelleme, degistirme veya hizmeti gecici/kalici olarak durdurma
+hakkini sakli tutar.
+
+6. KABUL VE FESIH
+Yazilimin kurulmasi, kopyalanmasi veya kullanilmasi, bu sozlesmenin
+tum sartlarinin kabul edildigi anlamina gelir. Kullanicinin sartlari
+ihlal etmesi durumunda, VoLaura lisans hakkini tek tarafli olarak
+feshetme yetkisine sahiptir.
+
+Detayli Sartlar:  https://volaura.xyz/terms
+Gizlilik Politikasi: https://volaura.xyz/privacy
+Iletisim:           support@volaura.xyz
+
+(C) 2026 VoLaura Proje Ekibi. Tum haklari saklidir.

@@ -1,0 +1,20 @@
+{
+  "name": "volaura-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "VoLaura admin panel + auto-update server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

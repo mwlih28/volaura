@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="volaura-logo.png">../assets/volaura-logo.png</file>
+    </qresource>
+</RCC>

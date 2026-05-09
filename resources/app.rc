@@ -1,0 +1,3 @@
+// Windows exe simgesi - assets/volaura-logo.ico varsa kullanilir.
+// Dosya yoksa derleme hata vermez (CMake yonlendirir).
+IDI_ICON1 ICON DISCARDABLE "../assets/volaura-logo.ico"

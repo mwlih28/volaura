@@ -1,0 +1,59 @@
+Acuerdo de Licencia de Usuario Final de VoLaura (EULA)
+=======================================================
+
+Version: 1.1.0
+Fecha de Vigencia: 3 de mayo de 2026
+Desarrollador: Equipo del Proyecto VoLaura
+
+1. CONCESION DE LICENCIA
+Sujeto a los terminos del presente acuerdo, VoLaura concede al
+usuario un derecho de uso mundial, libre de regalias, no transferible
+y no exclusivo, para fines personales o comerciales. La propiedad y
+los derechos de propiedad intelectual pertenecen a los desarrolladores
+de VoLaura.
+
+2. RESTRICCIONES DE USO
+El usuario se compromete a NO:
+  - Realizar ingenieria inversa del software ni intentar acceder al
+    codigo fuente.
+  - Utilizar el software para actividades ilegales, ciberataques o
+    violar los derechos de terceros.
+  - Desactivar, eludir o intentar eludir los mecanismos de seguridad
+    del software.
+
+3. PRIVACIDAD Y SEGURIDAD DE DATOS
+VoLaura se basa en la privacidad del usuario:
+  - Datos Multimedia: Los datos de microfono, camara y pantalla
+    compartida se procesan unicamente durante las llamadas activas
+    iniciadas por el usuario.
+  - Transmision: Estos datos se transmiten de extremo a extremo o
+    directamente a los participantes; NO se almacenan de forma
+    permanente en los servidores de VoLaura.
+  - Datos de Cuenta: La informacion recopilada para el registro y
+    verificacion (correo electronico, numero de telefono) se utiliza
+    unicamente para prestar el servicio y la seguridad (OTP/2FA), a
+    traves de SendGrid (correo) y Twilio (SMS).
+
+4. RENUNCIA DE GARANTIA Y LIMITACION DE RESPONSABILIDAD
+  - "Tal Cual": El software se proporciona "tal cual" y "segun
+    disponibilidad". Los desarrolladores NO garantizan que el
+    software funcionara de forma ininterrumpida o sin errores.
+  - Sin Responsabilidad: Los desarrolladores NO seran responsables
+    de danos directos, indirectos o incidentales derivados del uso,
+    mal uso o perdida de datos.
+
+5. CAMBIOS DEL SERVICIO
+Los desarrolladores se reservan el derecho de actualizar, modificar
+o suspender temporal/permanentemente las funciones o el servicio sin
+previo aviso.
+
+6. ACEPTACION Y TERMINACION
+La instalacion, copia o uso del software constituye la aceptacion de
+todos los terminos del presente acuerdo. Si el usuario incumple los
+terminos, VoLaura podra rescindir la licencia unilateralmente.
+
+Terminos completos:    https://volaura.xyz/terms
+Politica de privacidad: https://volaura.xyz/privacy
+Contacto:              support@volaura.xyz
+
+(C) 2026 Equipo del Proyecto VoLaura. Todos los derechos reservados.
