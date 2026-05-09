@@ -43,7 +43,7 @@ $('#loginForm').addEventListener('submit', async (e) => {
       body: JSON.stringify({ token })
     });
     if (!r.ok) {
-      err.textContent = 'Geçersiz token. .env içindeki ADMIN_TOKEN ile aynı olmalı.';
+      err.textContent = 'Geçersiz giriş bilgisi.';
       err.hidden = false;
       return;
     }

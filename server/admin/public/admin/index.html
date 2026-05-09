@@ -13,13 +13,12 @@
   <div class="login-card">
     <div class="logo-orb">V</div>
     <h1>VoLaura Admin</h1>
-    <p class="muted">Yönetim paneline erişmek için <b>admin token</b>'ı gir.</p>
+    <p class="muted">Yönetim paneline erişmek için giriş yap.</p>
     <form id="loginForm">
-      <input type="password" id="tokenInput" placeholder="Admin token (uzun rastgele dize)" autocomplete="current-password" required>
+      <input type="password" id="tokenInput" placeholder="Yetkili anahtarı" autocomplete="current-password" required>
       <button type="submit" class="btn primary">Giriş yap</button>
       <p id="loginError" class="error" hidden></p>
     </form>
-    <p class="hint">Token <code>server/admin/.env</code> içinde tanımlı (<code>ADMIN_TOKEN</code>).</p>
   </div>
 </section>
 
