@@ -3,6 +3,26 @@
 #include <QJsonObject>
 #include <QUuid>
 #include <QByteArray>
+#include <QSettings>
+
+namespace {
+// 30 günlük "bu cihaza güven" 2FA tokenı için QSettings anahtar üreticisi.
+// Token kullanıcı adına bağlı; aynı PC'de farklı kullanıcılar farklı tokenlar tutar.
+QString trustTokenKey(const QString &userName) {
+    return QStringLiteral("auth/2fa_trust/") + userName.toLower().trimmed();
+}
+QString readTrustToken(const QString &userName) {
+    if (userName.isEmpty()) return {};
+    QSettings s;
+    return s.value(trustTokenKey(userName)).toString();
+}
+void writeTrustToken(const QString &userName, const QString &token) {
+    if (userName.isEmpty() || token.isEmpty()) return;
+    QSettings s;
+    s.setValue(trustTokenKey(userName), token);
+    s.sync();
+}
+} // namespace
 
 SignalingClient::SignalingClient(const QString &serverUrl, QObject *parent)
     : QObject(parent), serverUrl(serverUrl) {
@@ -123,6 +143,10 @@ void SignalingClient::login(const QString &userName, const QString &password) {
     msg["type"] = "login";
     msg["userName"] = userName;
     msg["password"] = password;
+    // Daha önce 2FA başarıyla geçildiyse, sunucu 30 gün geçerli bir token vermişti;
+    // tekrar gönder. Sunucu doğrularsa 2FA challenge atlanır ve e-posta gönderilmez.
+    const QString tt = readTrustToken(userName);
+    if (!tt.isEmpty()) msg["deviceTrustToken"] = tt;
     sendMessage(msg);
 }
 
@@ -435,6 +459,12 @@ void SignalingClient::onTextMessageReceived(const QString &message) {
     }
     else if (type == "login_result") {
         const bool ok = obj["ok"].toBool();
+        if (ok) {
+            // Sunucu 2FA başarısı sonrası yeni bir trust token gönderdiyse onu sakla.
+            // Bu sayede 30 gün boyunca tekrar 2FA email kodu istenmeyecek.
+            const QString tt = obj["deviceTrustToken"].toString();
+            if (!tt.isEmpty()) writeTrustToken(obj["userName"].toString(), tt);
+        }
         if (!ok && obj["errorCode"].toString() == "email_not_verified") {
             emit loginNeedsVerification(obj["userName"].toString(),
                                         obj["email"].toString(),
@@ -633,6 +663,10 @@ void SignalingClient::onTextMessageReceived(const QString &message) {
                               methods.value("emailHint").toString());
     }
     else if (type == "login_2fa_result") {
+        if (obj.value("ok").toBool()) {
+            const QString tt = obj["deviceTrustToken"].toString();
+            if (!tt.isEmpty()) writeTrustToken(obj.value("userName").toString(), tt);
+        }
         emit login2faResult(obj.value("ok").toBool(),
                             obj.value("userName").toString(),
                             obj.value("email").toString(),

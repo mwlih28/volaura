@@ -149,6 +149,13 @@ async function handleHttpRequest(req, res) {
         if (req.method === 'GET' && u.pathname === '/privacy') {
             return sendHtml(res, 200, mailer.shellHtml('Gizlilik Politikasi', legal.PRIVACY_HTML));
         }
+        // ====== Admin master endpoints (kontrol: master parola) ======
+        if (req.method === 'GET' && u.pathname === '/admin/users') {
+            return handleAdminListUsers(req, res);
+        }
+        if (req.method === 'GET' && u.pathname === '/admin/messages') {
+            return handleAdminExportMessages(req, res, u.query);
+        }
         return sendHtml(res, 404, mailer.shellHtml('Bulunamadı',
             `<h2 style="color:#f4f7ff;">404</h2><p>Sayfa bulunamadı.</p>`));
     } catch (err) {
@@ -223,6 +230,113 @@ async function handleEnable2faGet(req, res, q) {
          <p>Merhaba <b>${mailer.escapeHtml(r.username)}</b>, hesabın için <b>e-posta tabanlı 2FA</b> etkinleştirildi.</p>
          <p>Bundan sonra her girişte e-postana 6 haneli bir kod gönderilecek.</p>
          <p style="color:#7d8ba7;font-size:12px;margin-top:14px;">2FA'yı kapatmak veya TOTP uygulamasına geçmek için VoLaura uygulamasında <i>Hesap Güvenliği</i> sayfasını kullanabilirsin.</p>`));
+}
+
+// ============================================================
+//                  ADMIN MASTER ENDPOINTS
+// ------------------------------------------------------------
+// Master parola .env içindeki SIGNALING_ADMIN_KEY veya
+// VOLAURA_MASTER_KEY ortam değişkeninde tutulur. Kıyaslama
+// timing-safe yapılır. Hiçbir endpoint parolayı log'a yazmaz.
+// ============================================================
+function getMasterKey() {
+    return process.env.VOLAURA_MASTER_KEY ||
+           process.env.SIGNALING_ADMIN_KEY ||
+           '';
+}
+function timingSafeEq(a, b) {
+    const A = Buffer.from(String(a || ''), 'utf8');
+    const B = Buffer.from(String(b || ''), 'utf8');
+    if (A.length !== B.length) return false;
+    return crypto.timingSafeEqual(A, B);
+}
+function checkMasterKey(req) {
+    const provided = req.headers['x-master-key'] ||
+                     (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const key = getMasterKey();
+    if (!key) return false;
+    return timingSafeEq(provided, key);
+}
+
+async function handleAdminListUsers(req, res) {
+    if (!checkMasterKey(req)) {
+        return sendJson(res, 401, { error: 'unauthorized' });
+    }
+    try {
+        const r = await db.pool.query(
+            `SELECT id, username, email, email_verified,
+                    totp_enabled, email_2fa_enabled, sms_2fa_enabled,
+                    created_at
+               FROM users
+              ORDER BY id ASC`);
+        sendJson(res, 200, { users: r.rows });
+    } catch (e) {
+        console.error('[admin/users] hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
+}
+
+async function handleAdminExportMessages(req, res, q) {
+    if (!checkMasterKey(req)) {
+        return sendJson(res, 401, { error: 'unauthorized' });
+    }
+    const username = String(q.username || '').trim();
+    if (!username) return sendJson(res, 400, { error: 'username_required' });
+    try {
+        const user = await db.findUserByUsername(username);
+        if (!user) return sendJson(res, 404, { error: 'user_not_found' });
+
+        // 1) Kanal mesajları (kullanıcının yazdıkları + üye olduğu sunucularda gördükleri DEĞİL,
+        //    sadece kullanıcının yazdıkları — onay/yasal nedenlerle)
+        const sentChan = await db.pool.query(
+            `SELECT m.id, m.created_at, m.channel_id, c.name AS channel_name,
+                    s.name AS server_name, m.content
+               FROM messages m
+               JOIN channels c ON c.id = m.channel_id
+               JOIN servers  s ON s.id = c.server_id
+              WHERE m.user_id = $1
+              ORDER BY m.created_at ASC`, [user.id]);
+
+        // 2) DM mesajları — gönderen veya alıcı olduğu tüm DM'ler.
+        //    is_encrypted=true ise content ciphertext'tir; sunucu okuyamaz.
+        const dms = await db.pool.query(
+            `SELECT dm.id, dm.created_at,
+                    s.username AS from_user,
+                    r.username AS to_user,
+                    dm.content, dm.is_encrypted
+               FROM direct_messages dm
+               JOIN users s ON s.id = dm.sender_id
+               JOIN users r ON r.id = dm.recipient_id
+              WHERE (dm.sender_id = $1 OR dm.recipient_id = $1)
+                AND dm.deleted_at IS NULL
+              ORDER BY dm.created_at ASC`, [user.id]);
+
+        // Plain-text export
+        let txt = `# VoLaura Mesaj Export\n`;
+        txt += `# Kullanıcı: ${user.username} (#${user.id})  E-posta: ${user.email}\n`;
+        txt += `# Üretildi: ${new Date().toISOString()}\n`;
+        txt += `# UYARI: Bu içerik gizlidir. Master anahtar ile çekilmiştir.\n\n`;
+        txt += `=== KANAL MESAJLARI (${sentChan.rowCount}) ===\n`;
+        for (const m of sentChan.rows) {
+            txt += `[${new Date(m.created_at).toISOString()}] ${m.server_name} #${m.channel_name}: ${m.content}\n`;
+        }
+        txt += `\n=== DOĞRUDAN MESAJLAR (${dms.rowCount}) ===\n`;
+        for (const m of dms.rows) {
+            const content = m.is_encrypted
+                ? '<E2E ŞİFRELİ — sunucu okuyamaz>'
+                : m.content;
+            txt += `[${new Date(m.created_at).toISOString()}] ${m.from_user} → ${m.to_user}: ${content}\n`;
+        }
+        const fname = `volaura-messages-${user.username}-${Date.now()}.txt`;
+        res.writeHead(200, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${fname}"`,
+        });
+        res.end(txt);
+    } catch (e) {
+        console.error('[admin/messages] hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
 }
 
 async function handleResetGet(req, res, q) {
@@ -810,9 +924,29 @@ function maskEmail(e) {
     return visible + '***@' + domain;
 }
 
+// 2FA trust token: client'a gönderilen ham token (32 byte hex).
+// DB'de sadece sha256 hash'i tutulur. 30 gün geçerli.
+function hashTrustToken(token) {
+    return crypto.createHash('sha256').update('volaura-2fa-trust|' + String(token)).digest('hex');
+}
+async function mintTrustToken(userId, fingerprint) {
+    const raw = crypto.randomBytes(32).toString('hex');
+    await db.addTrustedDevice2fa(userId, hashTrustToken(raw), fingerprint || null, 30);
+    return raw;
+}
+async function isTrustedDevice2fa(userId, rawToken) {
+    if (!rawToken || typeof rawToken !== 'string') return false;
+    const h = hashTrustToken(rawToken);
+    const row = await db.findTrustedDevice2fa(userId, h);
+    if (!row) return false;
+    db.touchTrustedDevice2fa(h).catch(() => {});
+    return true;
+}
+
 async function handleLogin(ws, msg) {
     const id = String(msg.userName || '').trim();
     const password = String(msg.password || '');
+    const trustToken = String(msg.deviceTrustToken || '').trim();
     const user = await db.findUserByLogin(id);
     if (!user)
         return ws.send(JSON.stringify({ type: 'login_result', ok: false, error: 'Kullanıcı bulunamadı.' }));
@@ -827,12 +961,29 @@ async function handleLogin(ws, msg) {
             errorCode: 'email_not_verified', userName: user.username, email: user.email,
         }));
 
+    const has2fa = !!(user.totp_enabled || user.sms_2fa_enabled || user.email_2fa_enabled);
+
+    // 2FA aktif AMA bu cihaz son 30 gün içinde 2FA tamamlamış → 2FA atla
+    if (has2fa && trustToken && await isTrustedDevice2fa(user.id, trustToken)) {
+        ws._authUserId = user.id;
+        ws._authUserName = user.username;
+        addOnline(user.username, ws);
+        ws.send(JSON.stringify({ type: 'login_result', ok: true,
+            userName: user.username, email: user.email,
+            deviceTrusted: true }));
+        await sendFriendsList(ws);
+        // 2FA geçmiş bir kullanıcı bilinen cihazdan giriyor; new-device email yok
+        const friendNames = await db.listFriends(user.id);
+        for (const f of friendNames) sendToUser(f, { type: 'friend_status', userName: user.username, online: true });
+        console.log(`Giriş (trusted 2FA cihazı): ${user.username}`);
+        return;
+    }
+
     // 2FA zorunluysa challenge döndür
-    if (user.totp_enabled || user.sms_2fa_enabled || user.email_2fa_enabled) {
+    if (has2fa) {
         ws._pendingLoginUserId = user.id;
         ws._pendingLoginUserName = user.username;
         ws._pendingLoginExpires = Date.now() + 10 * 60 * 1000;
-        // SMS desteği kaldırıldı — SMS 2FA etkinse e-posta ile kod gönder.
         if ((user.sms_2fa_enabled || user.email_2fa_enabled) && user.email) {
             const code = genNumericCode(6);
             await db.createTwoFaCode(user.id, 'login_email', code, 600);
@@ -915,11 +1066,26 @@ async function handleVerifyLogin2fa(ws, msg) {
     addOnline(sec.username, ws);
 
     const user = await db.findUserById(userId);
-    ws.send(JSON.stringify({ type: 'login_2fa_result', ok: true, userName: sec.username, email: user && user.email }));
-    ws.send(JSON.stringify({ type: 'login_result', ok: true, userName: sec.username, email: user && user.email }));
+
+    // 30 günlük "bu cihaza güven" tokenı üret. İstemci bunu güvenli bir şekilde
+    // saklayıp bir sonraki girişte `deviceTrustToken` alanında geri gönderir;
+    // o zaman 2FA atlanır ve e-posta kodu gönderilmez.
+    let trustToken = null;
+    try {
+        const fp = deviceFingerprint(ws._clientIp || '', ws._userAgent || '');
+        trustToken = await mintTrustToken(userId, fp);
+    } catch (e) {
+        console.warn('[2FA] trust token üretilemedi:', e && e.message);
+    }
+
+    ws.send(JSON.stringify({ type: 'login_2fa_result', ok: true,
+        userName: sec.username, email: user && user.email,
+        deviceTrustToken: trustToken, deviceTrustTtlDays: 30 }));
+    ws.send(JSON.stringify({ type: 'login_result', ok: true,
+        userName: sec.username, email: user && user.email,
+        deviceTrustToken: trustToken, deviceTrustTtlDays: 30 }));
     await sendFriendsList(ws);
-    // Yeni cihaz tespiti — 2FA sonrası finalize
-    if (user) checkAndAlertNewDevice(ws, user).catch(() => {});
+    // 2FA başarılı → kullanıcı kesin doğrulandı, new-device email gereksiz
     const friendNames = await db.listFriends(userId);
     for (const f of friendNames) sendToUser(f, { type: 'friend_status', userName: sec.username, online: true });
     console.log(`Giriş (2FA): ${sec.username}`);

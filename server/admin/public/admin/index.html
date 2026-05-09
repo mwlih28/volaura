@@ -112,15 +112,49 @@
 
     <!-- USERS TAB -->
     <div class="tab-panel" id="tab-users" hidden>
-      <div class="panel"><div class="panel-head"><h2>Kullanıcılar</h2></div>
-        <div id="usersBody" class="empty">Yükleniyor...</div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Kullanıcılar</h2>
+          <span class="hint">Master parola ile listele</span>
+        </div>
+        <form id="usersMasterForm" class="master-form">
+          <div class="row">
+            <label>Master Parola</label>
+            <input type="password" id="usersMasterPwd" placeholder="•••••••••••••" autocomplete="off">
+          </div>
+          <button type="submit" class="btn primary">Kullanıcıları Getir</button>
+          <div class="error" id="usersError" hidden></div>
+        </form>
+        <div id="usersBody" class="users-list"></div>
       </div>
     </div>
 
     <!-- MESSAGES TAB -->
     <div class="tab-panel" id="tab-messages" hidden>
-      <div class="panel"><div class="panel-head"><h2>Mesajlar</h2></div>
-        <div id="msgsBody" class="empty">Yükleniyor...</div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Mesaj Export</h2>
+          <span class="hint">⚠ Hassas içerik — sadece master parola ile</span>
+        </div>
+        <div class="warning-box">
+          <strong>Gizlilik:</strong> Kullanıcı mesajları sadece master parola ile çekilebilir.
+          Master parola olmadan bu sayfa hiçbir veri göstermez.
+          <br>İndirilen .txt dosyası kullanıcının kanal mesajlarını ve doğrudan mesajlarını içerir.
+        </div>
+        <form id="msgsExportForm" class="master-form">
+          <div class="row">
+            <label>Master Parola</label>
+            <input type="password" id="msgsMasterPwd" placeholder="•••••••••••••" autocomplete="off">
+          </div>
+          <div class="row">
+            <label>Kullanıcı Adı</label>
+            <input type="text" id="msgsUsername" placeholder="örn: ali_demir" autocomplete="off">
+            <small class="hint-sm">Kullanıcılar sekmesinden seçebilir veya elle yazabilirsin.</small>
+          </div>
+          <button type="submit" class="btn primary">Mesajları .txt indir</button>
+          <div class="error" id="msgsError" hidden></div>
+          <div class="success" id="msgsSuccess" hidden></div>
+        </form>
       </div>
     </div>
 

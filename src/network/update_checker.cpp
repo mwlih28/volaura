@@ -13,6 +13,7 @@
 #include <QStandardPaths>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QCryptographicHash>
 #include <QProcess>
 #include <QCoreApplication>
@@ -26,12 +27,57 @@ UpdateChecker::UpdateChecker(QObject *parent)
       checkUrl_(QStringLiteral("https://update.volaura.xyz/api/version")) {
     poll_->setSingleShot(false);
     connect(poll_, &QTimer::timeout, this, &UpdateChecker::checkNow);
+
+    // Bildirim/duyuru polling — sürüm kontrolünden bağımsız ve sık
+    notifPoll_ = new QTimer(this);
+    notifPoll_->setSingleShot(false);
+    notifPoll_->setInterval(60 * 1000); // dakikada bir
+    connect(notifPoll_, &QTimer::timeout, this, &UpdateChecker::fetchNotificationsNow);
+    notifPoll_->start();
+    // İlk fetch 4 saniye sonra
+    QTimer::singleShot(4000, this, &UpdateChecker::fetchNotificationsNow);
 }
 
 void UpdateChecker::setPollIntervalSec(int s) {
     if (s <= 0) { poll_->stop(); return; }
     poll_->setInterval(s * 1000);
     if (!poll_->isActive()) poll_->start();
+}
+
+// ---------- Notifications poll ----------
+void UpdateChecker::fetchNotificationsNow() {
+    QNetworkRequest req(notifUrl_);
+    req.setHeader(QNetworkRequest::UserAgentHeader,
+                  QString("VoLaura/%1").arg(currentVersion_));
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    QNetworkReply *r = net_->get(req);
+    connect(r, &QNetworkReply::finished, this, [this, r]() { onNotificationsFinished(r); });
+}
+
+void UpdateChecker::onNotificationsFinished(QNetworkReply *r) {
+    r->deleteLater();
+    if (r->error() != QNetworkReply::NoError) {
+        // Sessizce yut — sürekli loglamayı önler
+        return;
+    }
+    const QByteArray body = r->readAll();
+    QJsonParseError pe{};
+    const QJsonDocument doc = QJsonDocument::fromJson(body, &pe);
+    if (pe.error != QJsonParseError::NoError || !doc.isArray()) return;
+
+    const QJsonArray arr = doc.array();
+    for (const auto &v : arr) {
+        const QJsonObject o = v.toObject();
+        const QString id    = o.value("id").toString();
+        const QString type  = o.value("type").toString();
+        const QString title = o.value("title").toString();
+        const QString body  = o.value("body").toString();
+        if (id.isEmpty() || title.isEmpty()) continue;
+        if (seenNotifIds_.contains(id)) continue;  // zaten gösterildi
+        seenNotifIds_.insert(id);
+        emit notificationReceived(id, type, title, body);
+    }
 }
 
 // ---------- Version comparison ----------

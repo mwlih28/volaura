@@ -3356,6 +3356,21 @@ void MainWindow::initUpdateChecker() {
             this, &MainWindow::onUpdateAvailable);
     connect(updateChecker, &UpdateChecker::checkFailed, this,
             [](const QString &e) { qDebug() << "[update] check failed:" << e; });
+
+    // Admin paneli üzerinden push edilen duyurular
+    connect(updateChecker, &UpdateChecker::notificationReceived, this,
+            [this](const QString &id, const QString &type,
+                   const QString &title, const QString &body) {
+        if (!notifCenter) return;
+        QString emoji = QStringLiteral("📣");
+        if (type == QLatin1String("warning"))      emoji = QStringLiteral("⚠️");
+        else if (type == QLatin1String("success")) emoji = QStringLiteral("✅");
+        else if (type == QLatin1String("update"))  emoji = QStringLiteral("⬆️");
+        else if (type == QLatin1String("info"))    emoji = QStringLiteral("ℹ️");
+        // Aynı id ikinci defa gelirse merkez kendi içinde dedupe eder
+        notifCenter->addNotification(emoji, title, body, QString(), nullptr,
+                                      QStringLiteral("srv_") + id);
+    });
     connect(updateChecker, &UpdateChecker::downloadProgress, this,
             [this](qint64 r, qint64 t) {
         if (t > 0 && notifCenter) {

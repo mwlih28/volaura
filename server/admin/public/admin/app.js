@@ -244,36 +244,150 @@ $('#notifForm').addEventListener('submit', async (e) => {
   }
 });
 
-// --- Users / Messages (placeholder) ---
-async function loadUsers() {
-  const r = await fetch('/api/admin/users', { credentials: 'include' });
-  const data = await r.json();
+// --- Users (master parola ile) ---
+function loadUsers() {
+  // İlk açılışta master parola yoksa hiç istek atma — UI form bekler
   const el = $('#usersBody');
-  if (!data.integrated) {
-    el.innerHTML = `
-      <p>📡 <b>Signaling backend entegrasyonu gerekli.</b></p>
-      <p class="muted">${escapeHtml(data.note || '')}</p>
-      <p class="muted">Yapılması gereken: <code>server/admin/server.js</code> içinde
-      <code>/api/admin/users</code> endpoint'inden, ana <code>wss://volaura.xyz:8444</code>
-      sunucusuna admin API çağrısı yap. <code>SIGNALING_API</code> ve
-      <code>SIGNALING_ADMIN_KEY</code>'i <code>.env</code>'e ekle.</p>`;
-  } else {
-    // ... gerçek render
-    el.textContent = JSON.stringify(data.users, null, 2);
+  if (!el.dataset.loaded) {
+    el.innerHTML = '<p class="muted">🔒 Listelemek için yukarıdaki master parolayı gir.</p>';
   }
 }
-async function loadMessages() {
-  const r = await fetch('/api/admin/messages', { credentials: 'include' });
-  const data = await r.json();
-  const el = $('#msgsBody');
-  if (!data.integrated) {
-    el.innerHTML = `<p>📡 <b>Signaling backend entegrasyonu gerekli.</b></p>
-      <p class="muted">Sürümler ve bildirimler tam çalışıyor — kullanıcı/mesaj yönetimi
-      ana sunucu API'si bağlanınca aktive olacak.</p>`;
-  } else {
-    el.textContent = JSON.stringify(data.messages, null, 2);
+
+$('#usersMasterForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pwd = $('#usersMasterPwd').value;
+  const err = $('#usersError');
+  err.hidden = true;
+  if (!pwd) {
+    err.textContent = 'Master parola boş olamaz.';
+    err.hidden = false;
+    return;
   }
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'Yükleniyor...';
+  try {
+    const r = await fetch('/api/admin/master-list-users', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ masterPassword: pwd })
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      err.textContent = data.error === 'invalid_master_password'
+        ? 'Master parola hatalı.'
+        : data.error === 'master_key_not_configured'
+          ? 'Sunucuda VOLAURA_MASTER_KEY env eksik.'
+          : 'Hata: ' + (data.error || r.status);
+      err.hidden = false;
+      return;
+    }
+    renderUsers(data.users || []);
+    $('#usersBody').dataset.loaded = '1';
+    // Master parolayı in-memory tutuyoruz: mesaj tabında otomatik doldur
+    sessionStorage.setItem('vl_master_tmp', pwd);
+    $('#msgsMasterPwd').value = pwd;
+  } catch (e2) {
+    err.textContent = 'Sunucuya ulaşılamadı: ' + e2.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Kullanıcıları Getir';
+  }
+});
+
+function renderUsers(users) {
+  const el = $('#usersBody');
+  if (!users.length) {
+    el.innerHTML = '<p class="muted">Hiç kullanıcı bulunamadı.</p>';
+    return;
+  }
+  const rows = users.map(u => {
+    const date = u.created_at ? new Date(u.created_at).toLocaleDateString('tr-TR') : '—';
+    const tags = [];
+    if (u.email_verified)    tags.push('<span class="tag ok">✓ Doğrulandı</span>');
+    if (u.totp_enabled)      tags.push('<span class="tag warn">🔐 TOTP</span>');
+    if (u.email_2fa_enabled) tags.push('<span class="tag warn">📧 E-posta 2FA</span>');
+    return `
+      <div class="user-row">
+        <div class="user-meta">
+          <div class="user-name">${escapeHtml(u.username)}</div>
+          <div class="user-email">${escapeHtml(u.email || '')}</div>
+          <div class="user-tags">${tags.join(' ')}</div>
+        </div>
+        <div class="user-stats">
+          <span class="muted">#${u.id}</span>
+          <span class="muted">${date}</span>
+          <button class="btn ghost sm" data-export="${escapeHtml(u.username)}">📥 Mesajları İndir</button>
+        </div>
+      </div>`;
+  }).join('');
+  el.innerHTML = `<div class="users-grid">${rows}</div>
+    <p class="muted small">Toplam ${users.length} kullanıcı</p>`;
+
+  el.querySelectorAll('[data-export]').forEach(b => {
+    b.addEventListener('click', () => {
+      // Mesajlar sekmesine geç + kullanıcı adını doldur
+      $('#msgsUsername').value = b.dataset.export;
+      document.querySelector('.tab[data-tab=messages]').click();
+    });
+  });
 }
+
+// --- Messages export (master parola + kullanıcı adı → .txt) ---
+function loadMessages() {
+  const stored = sessionStorage.getItem('vl_master_tmp');
+  if (stored) $('#msgsMasterPwd').value = stored;
+}
+
+$('#msgsExportForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pwd = $('#msgsMasterPwd').value;
+  const username = $('#msgsUsername').value.trim();
+  const err = $('#msgsError');
+  const ok  = $('#msgsSuccess');
+  err.hidden = ok.hidden = true;
+  if (!pwd) { err.textContent = 'Master parola boş.'; err.hidden = false; return; }
+  if (!username) { err.textContent = 'Kullanıcı adı gerekli.'; err.hidden = false; return; }
+
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'İndiriliyor...';
+  try {
+    const r = await fetch('/api/admin/master-export-messages', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ masterPassword: pwd, username })
+    });
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try { const j = await r.json(); msg = j.error || msg; } catch {}
+      err.textContent = msg === 'invalid_master_password' ? 'Master parola hatalı.'
+                       : msg === 'user_not_found'         ? 'Kullanıcı bulunamadı.'
+                       : 'Hata: ' + msg;
+      err.hidden = false;
+      return;
+    }
+    // Dosyayı indir
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `volaura-${username}-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    ok.textContent = `✓ ${username} kullanıcısının mesajları indirildi.`;
+    ok.hidden = false;
+  } catch (e2) {
+    err.textContent = 'Sunucuya ulaşılamadı: ' + e2.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Mesajları .txt indir';
+  }
+});
 
 // --- Helpers ---
 function escapeHtml(s) {

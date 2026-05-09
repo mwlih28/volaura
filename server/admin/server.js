@@ -251,18 +251,86 @@ app.delete('/api/admin/notifications/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// ----- Admin: Users / Messages (signaling backend ile entegrasyon — placeholder) -----
-app.get('/api/admin/users', requireAdmin, async (_req, res) => {
-  // TODO: process.env.SIGNALING_API ile gerçek backend'e GET isteği at
-  // Şimdilik mock veri:
+// ----- Admin: Users / Messages — vps-server (signaling) ile master parola proxy'si -----
+//
+// VOLAURA_MASTER_KEY .env'de ayarlanır. Aynı master key vps-server'da da
+// SIGNALING_ADMIN_KEY/VOLAURA_MASTER_KEY olarak set edilmelidir; admin panel
+// kullanıcısı parolayı sadece tarayıcıda girer, biz request-time'da geçici
+// olarak bellek dışında tutarız.
+//
+// Akış: client → POST /api/admin/master-list-users { masterPassword }
+//        admin server timing-safe karşılaştırır → vps-server'a HTTP GET
+//        /admin/users (X-Master-Key header) → JSON döner.
+const SIGNALING_BASE = process.env.SIGNALING_API_BASE || 'https://volaura.xyz:8444';
+const MASTER_KEY     = process.env.VOLAURA_MASTER_KEY || '';
+
+function masterEq(input) {
+  if (!MASTER_KEY || !input) return false;
+  const A = Buffer.from(String(MASTER_KEY), 'utf8');
+  const B = Buffer.from(String(input),     'utf8');
+  if (A.length !== B.length) return false;
+  return crypto.timingSafeEqual(A, B);
+}
+
+async function signalingFetch(pathAndQuery) {
+  // Node 18+ global fetch
+  const url = SIGNALING_BASE.replace(/\/$/, '') + pathAndQuery;
+  return fetch(url, {
+    method: 'GET',
+    headers: { 'X-Master-Key': MASTER_KEY },
+    // Self-signed sertifika ile çalışırsa: NODE_TLS_REJECT_UNAUTHORIZED env
+  });
+}
+
+app.post('/api/admin/master-list-users', requireAdmin, async (req, res) => {
+  const provided = String(req.body && req.body.masterPassword || '');
+  if (!masterEq(provided)) return res.status(403).json({ error: 'invalid_master_password' });
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  try {
+    const r = await signalingFetch('/admin/users');
+    if (!r.ok) return res.status(r.status).json({ error: 'signaling_error', status: r.status });
+    const data = await r.json();
+    res.json({ ok: true, users: data.users || [] });
+  } catch (e) {
+    console.error('[master-list-users] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable', detail: e.message });
+  }
+});
+
+// Mesaj export — txt indirme. Master parola query param yerine POST body ile gelir.
+app.post('/api/admin/master-export-messages', requireAdmin, async (req, res) => {
+  const provided = String(req.body && req.body.masterPassword || '');
+  const username = String(req.body && req.body.username || '').trim();
+  if (!username) return res.status(400).json({ error: 'username_required' });
+  if (!masterEq(provided)) return res.status(403).json({ error: 'invalid_master_password' });
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  try {
+    const r = await signalingFetch('/admin/messages?username=' + encodeURIComponent(username));
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '');
+      return res.status(r.status).json({ error: 'signaling_error', status: r.status, detail: txt });
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="volaura-${username}-${Date.now()}.txt"`);
+    res.send(buf);
+  } catch (e) {
+    console.error('[master-export] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable', detail: e.message });
+  }
+});
+
+// Eski placeholder endpoint'ler — geriye dönük uyumluluk
+app.get('/api/admin/users', requireAdmin, (_req, res) => {
   res.json({
     integrated: false,
-    note: 'Signaling backend entegrasyonu için server.js içinde TODO yorumlarına bakın.',
+    requiresMasterPassword: true,
+    note: 'Kullanıcı verisi için master parola gerekli — Mesajlar sekmesini kullan.',
     users: []
   });
 });
-app.get('/api/admin/messages', requireAdmin, async (_req, res) => {
-  res.json({ integrated: false, messages: [] });
+app.get('/api/admin/messages', requireAdmin, (_req, res) => {
+  res.json({ integrated: false, requiresMasterPassword: true, messages: [] });
 });
 
 // ----- Admin SPA static -----

@@ -120,6 +120,22 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_known_devices_user ON known_devices(user_id);
 
+    -- 2FA "30 gün bu cihaza güven" tokenları.
+    -- 2FA başarılı olunca bu cihaz için sha256(token_hash) kaydedilir; 30 gün
+    -- içinde aynı cihazdan girişte 2FA atlanır.
+    CREATE TABLE IF NOT EXISTS trusted_devices_2fa (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL,
+        fingerprint TEXT,
+        expires_at TIMESTAMPTZ NOT NULL,
+        last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (token_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_trusted_2fa_user ON trusted_devices_2fa(user_id);
+    CREATE INDEX IF NOT EXISTS idx_trusted_2fa_exp  ON trusted_devices_2fa(expires_at);
+
     -- Telefon/E-posta + kod ile parolasız giriş için: tek seferlik kodlar
     CREATE TABLE IF NOT EXISTS passwordless_login_codes (
         id SERIAL PRIMARY KEY,
@@ -727,6 +743,9 @@ module.exports = {
     // Cihaz fingerprint
     findKnownDevice, registerKnownDevice, touchKnownDevice,
     hasRecentDeviceInSubnet, getLastNewDeviceAlertAt, touchLastNewDeviceAlert,
+    // 2FA güvenilir cihaz tokenları
+    addTrustedDevice2fa, findTrustedDevice2fa, touchTrustedDevice2fa,
+    revokeTrustedDevice2fa, purgeExpiredTrustedDevices2fa,
     // Parolasız giriş kodları
     createPasswordlessCode, consumePasswordlessCode, expirePasswordlessCodes,
     // E2E DM public key
@@ -789,6 +808,36 @@ async function getLastNewDeviceAlertAt(userId) {
 async function touchLastNewDeviceAlert(userId) {
     await pool.query(
         'UPDATE users SET last_new_device_alert_at = NOW() WHERE id = $1', [userId]);
+}
+
+// =================== 2FA Trusted Devices (30 gün) ===================
+async function addTrustedDevice2fa(userId, tokenHash, fingerprint, ttlDays = 30) {
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
+    await pool.query(
+        `INSERT INTO trusted_devices_2fa (user_id, token_hash, fingerprint, expires_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (token_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at,
+                                                 last_used_at = NOW()`,
+        [userId, tokenHash, fingerprint || null, expiresAt]);
+}
+async function findTrustedDevice2fa(userId, tokenHash) {
+    const r = await pool.query(
+        `SELECT * FROM trusted_devices_2fa
+          WHERE user_id = $1 AND token_hash = $2 AND expires_at > NOW()
+          LIMIT 1`,
+        [userId, tokenHash]);
+    return r.rows[0] || null;
+}
+async function touchTrustedDevice2fa(tokenHash) {
+    await pool.query(
+        'UPDATE trusted_devices_2fa SET last_used_at = NOW() WHERE token_hash = $1',
+        [tokenHash]);
+}
+async function revokeTrustedDevice2fa(tokenHash) {
+    await pool.query('DELETE FROM trusted_devices_2fa WHERE token_hash = $1', [tokenHash]);
+}
+async function purgeExpiredTrustedDevices2fa() {
+    await pool.query('DELETE FROM trusted_devices_2fa WHERE expires_at < NOW()');
 }
 
 // =================== Parolasız Giriş Kodları ===================

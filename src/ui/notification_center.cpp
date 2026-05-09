@@ -164,18 +164,20 @@ void NotificationCenter::addNotification(const QString &emoji,
     it.ts = QDateTime::currentMSecsSinceEpoch();
     it.id = id;
 
+    bool replaced = false;
     if (!id.isEmpty()) {
-        // Replace if same id exists
+        // Replace if same id exists — bu durumda yeni okunmamış sayma
         for (int i = 0; i < items_.size(); ++i) {
             if (items_[i].id == id) {
                 items_.removeAt(i);
+                replaced = true;
                 break;
             }
         }
     }
     items_.prepend(it);
     if (items_.size() > 50) items_ = items_.mid(0, 50);
-    ++unread_;
+    if (!replaced) ++unread_;
     rebuildList();
     updateBadge();
 }
