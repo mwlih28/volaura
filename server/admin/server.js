@@ -297,6 +297,62 @@ app.post('/api/admin/master-list-users', requireAdmin, async (req, res) => {
   }
 });
 
+// === Kullanıcı onaylı erişim akışı ===
+//
+// Burada master parola İSTENMEZ — sadece admin paneli oturumu (cookie).
+// Talep oluşturulur, kullanıcıya e-posta gider; kullanıcı onaylayana kadar
+// admin .txt indiremez. Onaylar ise admin tek seferlik dışa aktarma yapabilir.
+
+app.post('/api/admin/grant-request', requireAdmin, async (req, res) => {
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  const username    = String(req.body && req.body.username || '').trim();
+  const requestedBy = String(req.body && req.body.requestedBy || 'VoLaura Yönetim').slice(0, 100);
+  if (!username) return res.status(400).json({ error: 'username_required' });
+  try {
+    const r = await fetch(SIGNALING_BASE.replace(/\/$/, '') + '/admin/request-message-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': MASTER_KEY },
+      body: JSON.stringify({ username, requestedBy }),
+    });
+    const data = await r.json().catch(() => ({}));
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error('[grant-request] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable', detail: e.message });
+  }
+});
+
+app.get('/api/admin/grant-list', requireAdmin, async (_req, res) => {
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  try {
+    const r = await signalingFetch('/admin/access-grants');
+    const data = await r.json().catch(() => ({}));
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error('[grant-list] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable' });
+  }
+});
+
+app.get('/api/admin/grant-export/:token', requireAdmin, async (req, res) => {
+  if (!MASTER_KEY) return res.status(500).json({ error: 'master_key_not_configured' });
+  const token = String(req.params.token || '');
+  try {
+    const r = await signalingFetch('/admin/messages-by-grant?token=' + encodeURIComponent(token));
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      return res.status(r.status).json(j);
+    }
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="volaura-grant-${Date.now()}.txt"`);
+    res.send(buf);
+  } catch (e) {
+    console.error('[grant-export] hata:', e.message);
+    res.status(502).json({ error: 'signaling_unreachable' });
+  }
+});
+
 // Mesaj export — txt indirme. Master parola query param yerine POST body ile gelir.
 app.post('/api/admin/master-export-messages', requireAdmin, async (req, res) => {
   const provided = String(req.body && req.body.masterPassword || '');

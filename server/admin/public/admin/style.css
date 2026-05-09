@@ -318,6 +318,49 @@ progress { width: 100%; height: 6px; margin-top: 10px; }
 .user-stats { display: flex; align-items: center; gap: 10px; font-size: 11.5px; }
 .btn.sm { font-size: 11.5px; padding: 6px 10px; }
 .muted.small { font-size: 11px; padding-left: 4px; padding-top: 6px; }
+.tag.bad { background: rgba(239,68,68,0.14); color: #fca5a5; }
+.tag.muted-tag { background: rgba(255,255,255,0.04); color: var(--muted); }
+
+/* Mode tabs in Messages */
+.mode-tabs {
+  display: flex; gap: 8px; padding: 6px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.mode-tab {
+  flex: 1; padding: 10px 16px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer; font-size: 13px; font-weight: 600;
+  transition: all 0.15s;
+}
+.mode-tab:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.mode-tab.active {
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(168,85,247,0.18));
+  border-color: rgba(99,102,241,0.4);
+  box-shadow: 0 4px 12px rgba(99,102,241,0.15);
+}
+
+/* Grant list */
+.grant-list { display: grid; gap: 8px; }
+.grant-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 14px;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.grant-row:hover { border-color: rgba(99,102,241,0.4); }
+.grant-meta { flex: 1; min-width: 0; }
+.grant-user { font-size: 13.5px; font-weight: 700; }
+.grant-info {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-top: 6px; font-size: 11.5px;
+}
 @keyframes toast-slide {
   from { opacity: 0; transform: translateX(40px); }
   to   { opacity: 1; transform: translateX(0); }

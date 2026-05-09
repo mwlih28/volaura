@@ -120,6 +120,24 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_known_devices_user ON known_devices(user_id);
 
+    -- Admin'in bir kullanıcının mesajlarına erişim talebi.
+    -- Kullanıcı e-postasından onay/red kararı verir. Master parola olmadan,
+    -- sadece kullanıcı 'approved' yaptığında admin tek seferlik export alabilir.
+    CREATE TABLE IF NOT EXISTS message_access_grants (
+        id BIGSERIAL PRIMARY KEY,
+        token TEXT NOT NULL UNIQUE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        requested_by TEXT,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending','approved','denied','used','expired')),
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        decided_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_mag_user   ON message_access_grants(user_id);
+    CREATE INDEX IF NOT EXISTS idx_mag_status ON message_access_grants(status);
+
     -- 2FA "30 gün bu cihaza güven" tokenları.
     -- 2FA başarılı olunca bu cihaz için sha256(token_hash) kaydedilir; 30 gün
     -- içinde aynı cihazdan girişte 2FA atlanır.
@@ -746,6 +764,10 @@ module.exports = {
     // 2FA güvenilir cihaz tokenları
     addTrustedDevice2fa, findTrustedDevice2fa, touchTrustedDevice2fa,
     revokeTrustedDevice2fa, purgeExpiredTrustedDevices2fa,
+    // Mesaj erişim onay sistemi
+    createMessageAccessGrant, findMessageAccessGrant,
+    decideMessageAccessGrant, consumeMessageAccessGrant,
+    listPendingMessageAccessGrants, purgeExpiredMessageAccessGrants,
     // Parolasız giriş kodları
     createPasswordlessCode, consumePasswordlessCode, expirePasswordlessCodes,
     // E2E DM public key
@@ -838,6 +860,66 @@ async function revokeTrustedDevice2fa(tokenHash) {
 }
 async function purgeExpiredTrustedDevices2fa() {
     await pool.query('DELETE FROM trusted_devices_2fa WHERE expires_at < NOW()');
+}
+
+// =================== Mesaj Erişim Onay Sistemi ===================
+// Admin bir kullanıcının mesajlarına erişim talep eder. Kullanıcı e-postadan
+// 'Onayla'yı tıklayana kadar admin .txt indiremez.
+async function createMessageAccessGrant({ userId, token, requestedBy, ttlHours = 24 }) {
+    const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+    const r = await pool.query(
+        `INSERT INTO message_access_grants (user_id, token, requested_by, expires_at)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [userId, token, requestedBy || null, expiresAt]);
+    return r.rows[0];
+}
+async function findMessageAccessGrant(token) {
+    const r = await pool.query(
+        `SELECT g.*, u.username, u.email
+           FROM message_access_grants g
+           JOIN users u ON u.id = g.user_id
+          WHERE g.token = $1 LIMIT 1`, [token]);
+    return r.rows[0] || null;
+}
+async function decideMessageAccessGrant(token, decision /* 'approved'|'denied' */) {
+    const r = await pool.query(
+        `UPDATE message_access_grants
+            SET status = $2, decided_at = NOW()
+          WHERE token = $1 AND status = 'pending'
+            AND expires_at > NOW()
+          RETURNING *`,
+        [token, decision]);
+    return r.rows[0] || null;
+}
+// Tek seferlik kullan: status approved → used'a çevir, mesajları döndürmek için
+async function consumeMessageAccessGrant(token) {
+    const r = await pool.query(
+        `UPDATE message_access_grants
+            SET status = 'used'
+          WHERE token = $1 AND status = 'approved'
+            AND expires_at > NOW()
+          RETURNING *`,
+        [token]);
+    return r.rows[0] || null;
+}
+async function listPendingMessageAccessGrants() {
+    const r = await pool.query(
+        `SELECT g.id, g.token, g.requested_by, g.created_at, g.expires_at,
+                g.status, u.username, u.email
+           FROM message_access_grants g
+           JOIN users u ON u.id = g.user_id
+          WHERE g.expires_at > NOW()
+            AND g.status IN ('pending','approved','denied')
+          ORDER BY g.created_at DESC
+          LIMIT 50`);
+    return r.rows;
+}
+async function purgeExpiredMessageAccessGrants() {
+    await pool.query(
+        `UPDATE message_access_grants SET status = 'expired'
+          WHERE expires_at < NOW() AND status = 'pending'`);
+    await pool.query(
+        `DELETE FROM message_access_grants WHERE expires_at < NOW() - INTERVAL '7 days'`);
 }
 
 // =================== Parolasız Giriş Kodları ===================

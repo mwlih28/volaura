@@ -156,6 +156,24 @@ async function handleHttpRequest(req, res) {
         if (req.method === 'GET' && u.pathname === '/admin/messages') {
             return handleAdminExportMessages(req, res, u.query);
         }
+        // ====== Mesaj Erişim Onay Sistemi ======
+        // Admin master parola olmadan onay isteği başlatır:
+        if (req.method === 'POST' && u.pathname === '/admin/request-message-access') {
+            return handleAdminRequestMessageAccess(req, res);
+        }
+        if (req.method === 'GET' && u.pathname === '/admin/access-grants') {
+            return handleAdminListGrants(req, res);
+        }
+        if (req.method === 'GET' && u.pathname === '/admin/messages-by-grant') {
+            return handleAdminMessagesByGrant(req, res, u.query);
+        }
+        // Kullanıcının onay/red kararı verdiği public sayfa (e-posta linki):
+        if (req.method === 'GET'  && u.pathname === '/approve-message-access') {
+            return handleApprovePageGet(req, res, u.query);
+        }
+        if (req.method === 'POST' && u.pathname === '/approve-message-access') {
+            return handleApprovePagePost(req, res);
+        }
         return sendHtml(res, 404, mailer.shellHtml('Bulunamadı',
             `<h2 style="color:#f4f7ff;">404</h2><p>Sayfa bulunamadı.</p>`));
     } catch (err) {
@@ -337,6 +355,239 @@ async function handleAdminExportMessages(req, res, q) {
         console.error('[admin/messages] hata:', e && e.message);
         sendJson(res, 500, { error: 'server_error' });
     }
+}
+
+// ============================================================
+//          Mesaj Erişim Onay Sistemi (kullanıcı onaylı)
+// ------------------------------------------------------------
+// Master parola dışında bir akış: admin sadece istek başlatır,
+// kullanıcı e-postasından onaylamadıkça mesaj çekilemez.
+// Admin endpoint'leri X-Admin-Auth header ile korunur (admin server'dan
+// gelen istekleri ayırt etmek için aynı master key kullanılır; bu sadece
+// "admin server'dan gelen istektir" demek için kullanılır, kullanıcı
+// onayını ZORUNLU kılmaz).
+// ============================================================
+function checkAdminAuthHeader(req) {
+    // Master key ile aynı, ama bu endpoint'ler kullanıcı onayı sayesinde
+    // master key'i bilmeyen başka admin'ler tarafından da kullanılabilir.
+    return checkMasterKey(req);
+}
+
+async function handleAdminRequestMessageAccess(req, res) {
+    if (!checkAdminAuthHeader(req)) return sendJson(res, 401, { error: 'unauthorized' });
+    let body;
+    try { body = JSON.parse(await readBody(req) || '{}'); }
+    catch { return sendJson(res, 400, { error: 'bad_json' }); }
+    const username     = String(body.username || '').trim();
+    const requestedBy  = String(body.requestedBy || 'VoLaura Yönetim').slice(0, 100);
+    const reason       = String(body.reason || '').slice(0, 500);
+    if (!username) return sendJson(res, 400, { error: 'username_required' });
+
+    try {
+        const user = await db.findUserByUsername(username);
+        if (!user) return sendJson(res, 404, { error: 'user_not_found' });
+        if (!user.email) return sendJson(res, 400, { error: 'user_has_no_email' });
+
+        const token = makeToken();
+        const grant = await db.createMessageAccessGrant({
+            userId: user.id, token, requestedBy, ttlHours: 24,
+        });
+        const approveUrl = `${BASE_URL}/approve-message-access?token=${encodeURIComponent(token)}&action=approve`;
+        const denyUrl    = `${BASE_URL}/approve-message-access?token=${encodeURIComponent(token)}&action=deny`;
+
+        const tpl = mailer.messageAccessRequestEmail({
+            userName: user.username,
+            requestedBy,
+            approveUrl, denyUrl,
+            expiresIn: '24 saat',
+        });
+        mailer.sendMail({ to: user.email, ...tpl }).catch((e) => {
+            console.warn('[mag] e-posta hatası:', e && e.message);
+        });
+
+        sendJson(res, 200, {
+            ok: true,
+            token,
+            status: grant.status,
+            expiresAt: grant.expires_at,
+            user: { id: user.id, username: user.username, emailMasked: maskEmail(user.email) },
+        });
+    } catch (e) {
+        console.error('[mag] request hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
+}
+
+async function handleAdminListGrants(req, res) {
+    if (!checkAdminAuthHeader(req)) return sendJson(res, 401, { error: 'unauthorized' });
+    try {
+        const rows = await db.listPendingMessageAccessGrants();
+        // E-postaları maskele
+        const safe = rows.map(r => ({
+            id: r.id, token: r.token, status: r.status,
+            requestedBy: r.requested_by,
+            createdAt: r.created_at, expiresAt: r.expires_at,
+            user: { username: r.username, emailMasked: maskEmail(r.email) },
+        }));
+        sendJson(res, 200, { grants: safe });
+    } catch (e) {
+        console.error('[mag] list hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
+}
+
+async function handleAdminMessagesByGrant(req, res, q) {
+    if (!checkAdminAuthHeader(req)) return sendJson(res, 401, { error: 'unauthorized' });
+    const token = String(q.token || '');
+    if (!token) return sendJson(res, 400, { error: 'token_required' });
+    try {
+        // Tek seferlik tüket: status='approved' → 'used'
+        const grant = await db.consumeMessageAccessGrant(token);
+        if (!grant) {
+            // Detaylı hata
+            const peek = await db.findMessageAccessGrant(token);
+            if (!peek) return sendJson(res, 404, { error: 'grant_not_found' });
+            return sendJson(res, 403, { error: 'grant_not_approved_or_expired', status: peek.status });
+        }
+        // grant.user_id ile mesajları çek
+        const sentChan = await db.pool.query(
+            `SELECT m.id, m.created_at, c.name AS channel_name, s.name AS server_name, m.content
+               FROM messages m
+               JOIN channels c ON c.id = m.channel_id
+               JOIN servers  s ON s.id = c.server_id
+              WHERE m.user_id = $1
+              ORDER BY m.created_at ASC`, [grant.user_id]);
+        const dms = await db.pool.query(
+            `SELECT dm.id, dm.created_at,
+                    s.username AS from_user, r.username AS to_user,
+                    dm.content, dm.is_encrypted
+               FROM direct_messages dm
+               JOIN users s ON s.id = dm.sender_id
+               JOIN users r ON r.id = dm.recipient_id
+              WHERE (dm.sender_id = $1 OR dm.recipient_id = $1)
+                AND dm.deleted_at IS NULL
+              ORDER BY dm.created_at ASC`, [grant.user_id]);
+
+        const u = await db.findUserById(grant.user_id);
+        let txt = `# VoLaura Mesaj Export — KULLANICI ONAYLI\n`;
+        txt += `# Kullanıcı: ${u.username} (#${u.id})  E-posta: ${u.email}\n`;
+        txt += `# Onay zamanı: ${grant.decided_at ? new Date(grant.decided_at).toISOString() : '-'}\n`;
+        txt += `# Talep eden:  ${grant.requested_by || '-'}\n`;
+        txt += `# Üretildi:    ${new Date().toISOString()}\n\n`;
+        txt += `=== KANAL MESAJLARI (${sentChan.rowCount}) ===\n`;
+        for (const m of sentChan.rows) {
+            txt += `[${new Date(m.created_at).toISOString()}] ${m.server_name} #${m.channel_name}: ${m.content}\n`;
+        }
+        txt += `\n=== DOĞRUDAN MESAJLAR (${dms.rowCount}) ===\n`;
+        for (const m of dms.rows) {
+            const c = m.is_encrypted ? '<E2E ŞİFRELİ — sunucu okuyamaz>' : m.content;
+            txt += `[${new Date(m.created_at).toISOString()}] ${m.from_user} → ${m.to_user}: ${c}\n`;
+        }
+        const fname = `volaura-messages-${u.username}-grant-${Date.now()}.txt`;
+        res.writeHead(200, {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${fname}"`,
+        });
+        res.end(txt);
+    } catch (e) {
+        console.error('[mag] consume hata:', e && e.message);
+        sendJson(res, 500, { error: 'server_error' });
+    }
+}
+
+// Kullanıcının onay/red verdiği HTML sayfası
+async function handleApprovePageGet(req, res, q) {
+    const token = String(q.token || '');
+    const action = String(q.action || '').toLowerCase();
+    if (!token) {
+        return sendHtml(res, 400, mailer.shellHtml('Geçersiz',
+            `<h2 style="color:#ff9da8;">Eksik token</h2>`));
+    }
+    const grant = await db.findMessageAccessGrant(token);
+    if (!grant) {
+        return sendHtml(res, 404, mailer.shellHtml('Bulunamadı',
+            `<h2 style="color:#ff9da8;">Talep bulunamadı</h2>
+             <p>Bu bağlantı geçerli değil veya silinmiş.</p>`));
+    }
+    if (new Date(grant.expires_at).getTime() < Date.now()) {
+        return sendHtml(res, 410, mailer.shellHtml('Süresi Dolmuş',
+            `<h2 style="color:#ff9da8;">Süresi dolmuş</h2>
+             <p>Onay talebinin süresi 24 saatti ve dolmuş.</p>`));
+    }
+    if (grant.status !== 'pending') {
+        const labelMap = { approved: 'onaylandı', denied: 'reddedildi', used: 'kullanıldı', expired: 'süresi doldu' };
+        return sendHtml(res, 200, mailer.shellHtml('Talep zaten karara bağlandı',
+            `<h2 style="color:#f4f7ff;">Bu talep zaten ${labelMap[grant.status] || grant.status}</h2>`));
+    }
+
+    // Kullanıcı doğrudan e-postadan butona tıkladı: action verili → onayı/reddi POST'la kaydet
+    const safeToken = mailer.escapeHtml(token);
+    const safeUser  = mailer.escapeHtml(grant.username);
+    const safeWho   = mailer.escapeHtml(grant.requested_by || 'Yönetim');
+
+    const formHtml = `
+        <h2 style="color:#f4f7ff;margin:6px 0 12px 0;">Mesaj erişim onayı</h2>
+        <p style="color:#cfd6e4;">Merhaba <b>${safeUser}</b>,</p>
+        <p style="color:#cfd6e4;">
+            <b>${safeWho}</b> hesabınla ilişkili kanal mesajları ve doğrudan mesajları
+            <b>tek seferlik</b> okumak için onayını talep ediyor.
+        </p>
+        <p style="color:#7d8ba7;font-size:12.5px;">
+            Onaylarsan: yönetici, .txt formatında bir dışa aktarma yapacak ve bu işlem
+            seçimine bağlı kalacak. <b>Onaylanmamış istek hiçbir mesajı serbest bırakmaz.</b>
+        </p>
+        <form method="POST" action="/approve-message-access" style="display:flex;gap:10px;margin-top:18px;">
+            <input type="hidden" name="token" value="${safeToken}">
+            <button type="submit" name="action" value="approve"
+                    style="flex:1;padding:12px 18px;border:none;border-radius:8px;
+                           background:#22c55e;color:white;font-weight:700;font-size:14px;cursor:pointer;">
+                ✓ Evet, onaylıyorum
+            </button>
+            <button type="submit" name="action" value="deny"
+                    style="flex:1;padding:12px 18px;border:1px solid #4b5563;border-radius:8px;
+                           background:transparent;color:#fca5a5;font-weight:700;font-size:14px;cursor:pointer;">
+                ✗ Reddet
+            </button>
+        </form>
+    `;
+
+    if (action === 'approve' || action === 'deny') {
+        // Otomatik form submit'i (e-posta linkindeki action ile)
+        return sendHtml(res, 200, mailer.shellHtml('Mesaj Erişim Onayı', `
+            ${formHtml}
+            <script>
+              // E-postadan gelen ön-seçimle butonu otomatik bas
+              const btn = document.querySelector('button[value=${JSON.stringify(action)}]');
+              if (btn) setTimeout(() => btn.click(), 500);
+            </script>
+        `));
+    }
+    return sendHtml(res, 200, mailer.shellHtml('Mesaj Erişim Onayı', formHtml));
+}
+
+async function handleApprovePagePost(req, res) {
+    const body = await readBody(req);
+    const params = new url.URLSearchParams(body);
+    const token  = String(params.get('token') || '');
+    const action = String(params.get('action') || '').toLowerCase();
+    if (!token || !['approve','deny'].includes(action)) {
+        return sendHtml(res, 400, mailer.shellHtml('Geçersiz',
+            `<h2 style="color:#ff9da8;">Geçersiz istek</h2>`));
+    }
+    const decision = action === 'approve' ? 'approved' : 'denied';
+    const updated  = await db.decideMessageAccessGrant(token, decision);
+    if (!updated) {
+        return sendHtml(res, 410, mailer.shellHtml('Karar verilemedi',
+            `<h2 style="color:#ff9da8;">Bu talep artık geçerli değil</h2>
+             <p>Süresi dolmuş veya zaten karara bağlanmış olabilir.</p>`));
+    }
+    const message = decision === 'approved'
+        ? `<h2 style="color:#22c55e;margin:6px 0 10px 0;">✓ Onayladın</h2>
+           <p>Yönetici dışa aktarmayı yaptıktan sonra istek <b>tek seferlik</b> kullanılarak kapatılacak.</p>
+           <p style="color:#7d8ba7;font-size:12.5px;">Bu sekmeyi şimdi kapatabilirsin.</p>`
+        : `<h2 style="color:#fca5a5;margin:6px 0 10px 0;">✗ Reddettin</h2>
+           <p>Talep iptal edildi. Hesabını koruma altına almak için şifreni güncellemeyi düşünebilirsin.</p>`;
+    return sendHtml(res, 200, mailer.shellHtml('Karar kaydedildi', message));
 }
 
 async function handleResetGet(req, res, q) {

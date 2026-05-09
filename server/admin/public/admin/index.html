@@ -131,15 +131,56 @@
 
     <!-- MESSAGES TAB -->
     <div class="tab-panel" id="tab-messages" hidden>
+
+      <!-- Mod seçici -->
       <div class="panel">
         <div class="panel-head">
-          <h2>Mesaj Export</h2>
-          <span class="hint">⚠ Hassas içerik — sadece master parola ile</span>
+          <h2>Mesaj Erişimi</h2>
+          <span class="hint">İki yöntem: kullanıcı onayı (önerilen) · master parola (acil)</span>
+        </div>
+        <div class="mode-tabs">
+          <button class="mode-tab active" data-mode="grant">🔔 Kullanıcı Onayı</button>
+          <button class="mode-tab" data-mode="master">🗝️ Master Parola</button>
+        </div>
+      </div>
+
+      <!-- Mod 1: Kullanıcı onayı -->
+      <div class="panel" id="modeGrant">
+        <div class="panel-head">
+          <h2>Onay İste</h2>
+          <span class="hint">Kullanıcının e-postasına onay linki gider; onaylarsa indirebilirsin.</span>
+        </div>
+        <form id="grantRequestForm" class="master-form">
+          <div class="row">
+            <label>Kullanıcı Adı</label>
+            <input type="text" id="grantUsername" placeholder="örn: ali_demir" autocomplete="off">
+          </div>
+          <div class="row">
+            <label>Talep Eden (e-postada görünür)</label>
+            <input type="text" id="grantRequester" placeholder="VoLaura Yönetim" value="VoLaura Yönetim" autocomplete="off">
+          </div>
+          <button type="submit" class="btn primary">📨 Onay e-postası gönder</button>
+          <div class="error" id="grantError" hidden></div>
+          <div class="success" id="grantSuccess" hidden></div>
+        </form>
+        <div class="panel-head" style="margin-top:18px;">
+          <h2 style="font-size:14px;">Bekleyen / Onaylı İstekler</h2>
+          <button class="btn ghost sm" id="grantRefresh">↻ Yenile</button>
+        </div>
+        <div id="grantList" class="grant-list">
+          <p class="muted">Henüz istek yok.</p>
+        </div>
+      </div>
+
+      <!-- Mod 2: Master parola -->
+      <div class="panel" id="modeMaster" hidden>
+        <div class="panel-head">
+          <h2>Master Parola ile Acil Erişim</h2>
+          <span class="hint">⚠ Sadece sahip kullanır — kullanıcı onayını atlar.</span>
         </div>
         <div class="warning-box">
-          <strong>Gizlilik:</strong> Kullanıcı mesajları sadece master parola ile çekilebilir.
-          Master parola olmadan bu sayfa hiçbir veri göstermez.
-          <br>İndirilen .txt dosyası kullanıcının kanal mesajlarını ve doğrudan mesajlarını içerir.
+          <strong>Dikkat:</strong> Bu mod kullanıcı onayını atlar. Sadece acil durumlar için.
+          Normal akış için <b>Kullanıcı Onayı</b>'nı kullan.
         </div>
         <form id="msgsExportForm" class="master-form">
           <div class="row">

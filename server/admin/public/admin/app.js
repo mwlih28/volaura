@@ -334,10 +334,135 @@ function renderUsers(users) {
   });
 }
 
-// --- Messages export (master parola + kullanıcı adı → .txt) ---
+// --- Messages tab ---
 function loadMessages() {
   const stored = sessionStorage.getItem('vl_master_tmp');
   if (stored) $('#msgsMasterPwd').value = stored;
+  loadGrantList();
+}
+
+// Mode switcher (Kullanıcı Onayı / Master Parola)
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('.mode-tab');
+  if (!t) return;
+  document.querySelectorAll('.mode-tab').forEach(b => b.classList.toggle('active', b === t));
+  const mode = t.dataset.mode;
+  $('#modeGrant').hidden  = (mode !== 'grant');
+  $('#modeMaster').hidden = (mode !== 'master');
+});
+
+// --- Grant request flow (kullanıcı onaylı) ---
+$('#grantRequestForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username    = $('#grantUsername').value.trim();
+  const requestedBy = $('#grantRequester').value.trim() || 'VoLaura Yönetim';
+  const err = $('#grantError');
+  const ok  = $('#grantSuccess');
+  err.hidden = ok.hidden = true;
+  if (!username) { err.textContent = 'Kullanıcı adı gerekli.'; err.hidden = false; return; }
+  const btn = e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'Gönderiliyor...';
+  try {
+    const r = await fetch('/api/admin/grant-request', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, requestedBy }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) {
+      err.textContent = data.error === 'user_not_found' ? 'Kullanıcı bulunamadı.'
+                      : data.error === 'user_has_no_email' ? 'Bu kullanıcının e-postası yok.'
+                      : 'Hata: ' + (data.error || r.status);
+      err.hidden = false;
+      return;
+    }
+    ok.textContent = `✓ ${username} (${data.user.emailMasked}) adresine onay e-postası gönderildi. Onayladığında 'Bekleyen İstekler' listesinden indirebilirsin.`;
+    ok.hidden = false;
+    e.target.reset();
+    $('#grantRequester').value = 'VoLaura Yönetim';
+    loadGrantList();
+  } catch (e2) {
+    err.textContent = 'Sunucuya ulaşılamadı: ' + e2.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📨 Onay e-postası gönder';
+  }
+});
+
+$('#grantRefresh')?.addEventListener('click', loadGrantList);
+
+async function loadGrantList() {
+  const el = $('#grantList');
+  if (!el) return;
+  el.innerHTML = '<p class="muted">Yükleniyor...</p>';
+  try {
+    const r = await fetch('/api/admin/grant-list', { credentials: 'include' });
+    const data = await r.json();
+    const grants = data.grants || [];
+    if (!grants.length) {
+      el.innerHTML = '<p class="muted">Aktif istek yok.</p>';
+      return;
+    }
+    const rows = grants.map(g => {
+      const created = new Date(g.createdAt).toLocaleString('tr-TR');
+      const exp     = new Date(g.expiresAt).toLocaleString('tr-TR');
+      const statusBadge = {
+        pending:  '<span class="tag warn">⏳ Bekliyor</span>',
+        approved: '<span class="tag ok">✓ Onaylandı</span>',
+        denied:   '<span class="tag bad">✗ Reddedildi</span>',
+        used:     '<span class="tag muted-tag">Kullanıldı</span>',
+      }[g.status] || g.status;
+      const action = g.status === 'approved'
+        ? `<button class="btn primary sm" data-grant-export="${escapeHtml(g.token)}">📥 .txt indir</button>`
+        : '';
+      return `
+        <div class="grant-row">
+          <div class="grant-meta">
+            <div class="grant-user">${escapeHtml(g.user.username)} <span class="muted">${escapeHtml(g.user.emailMasked)}</span></div>
+            <div class="grant-info">
+              ${statusBadge}
+              <span class="muted small">Talep: ${escapeHtml(g.requestedBy || '-')}</span>
+              <span class="muted small">${created} → bitiş ${exp}</span>
+            </div>
+          </div>
+          <div>${action}</div>
+        </div>`;
+    }).join('');
+    el.innerHTML = rows;
+
+    el.querySelectorAll('[data-grant-export]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const token = b.dataset.grantExport;
+        b.disabled = true;
+        b.textContent = 'İndiriliyor...';
+        try {
+          const r = await fetch('/api/admin/grant-export/' + encodeURIComponent(token), { credentials: 'include' });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            toast('İndirilemedi: ' + (j.error || r.status), 'error');
+            return;
+          }
+          const blob = await r.blob();
+          const u = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = u; a.download = `volaura-grant-${Date.now()}.txt`;
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(u);
+          toast('✓ Export indirildi (token tek seferlik kullanıldı)', 'success');
+          loadGrantList();
+        } catch (e) {
+          toast('Hata: ' + e.message, 'error');
+        } finally {
+          b.disabled = false;
+          b.textContent = '📥 .txt indir';
+        }
+      });
+    });
+  } catch (e) {
+    el.innerHTML = '<p class="muted">Liste yüklenemedi: ' + escapeHtml(e.message) + '</p>';
+  }
 }
 
 $('#msgsExportForm')?.addEventListener('submit', async (e) => {

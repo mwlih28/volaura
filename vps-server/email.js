@@ -291,6 +291,47 @@ function newDeviceEmail({ userName, ip, userAgent, location, when, resetLink, en
     };
 }
 
+// Admin'in mesaj erişim talebi → kullanıcıya gönderilen onay e-postası.
+// Onayla / Reddet butonları aynı /approve-message-access sayfasına gider;
+// sayfa kararı POST'la kaydeder.
+function messageAccessRequestEmail({ userName, requestedBy, approveUrl, denyUrl, expiresIn }) {
+    const safeName = escapeHtml(userName);
+    const safeWho  = escapeHtml(requestedBy || 'Admin');
+    const safeExp  = escapeHtml(expiresIn || '24 saat');
+    const inner = `
+        <h1 style="margin:0 0 12px 0;font-size:22px;font-weight:700;color:#1a1a1a;">
+            Mesaj erişim onayı
+        </h1>
+        <p style="margin:0 0 8px 0;color:#374151;">Merhaba ${safeName},</p>
+        <p style="margin:0 0 14px 0;color:#374151;">
+            <b>${safeWho}</b> hesabınla ilişkili kanal mesajlarına ve doğrudan mesajlara
+            erişim için sizin onayınızı talep ediyor.
+        </p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+               style="border:1px solid #e7e9ee;border-radius:8px;background:#f9fafb;">
+          <tr><td style="padding:14px 16px;color:#374151;font-size:13.5px;line-height:1.7;">
+            <div><b style="color:#1a1a1a;">Talep eden:</b> ${safeWho}</div>
+            <div><b style="color:#1a1a1a;">Geçerlilik:</b> ${safeExp}</div>
+            <div><b style="color:#1a1a1a;">Sadece tek seferlik kullanılabilir.</b></div>
+          </td></tr>
+        </table>
+        <p style="margin:18px 0 6px 0;color:#1a1a1a;font-weight:600;font-size:14.5px;">
+            Onaylıyor musun?
+        </p>
+        ${bigButton(approveUrl, 'Evet, onaylıyorum')}
+        ${ghostButton(denyUrl, 'Hayır, reddet')}
+        <p style="margin:14px 0 0 0;color:#8b93a7;font-size:12.5px;">
+            Bu istek senden değilse <b>Reddet</b>'e tıkla; istek otomatik iptal edilir.
+            Şüphelendiğin durumda hesabını koruma altına almak için şifreni değiştirebilir
+            veya 2FA'yı açabilirsin.
+        </p>`;
+    return {
+        subject: 'VoLaura — Mesajlarınıza erişim onayı talep edildi',
+        text: `Merhaba ${userName},\n\n${requestedBy || 'Admin'} mesajlarınıza erişim için onay talep ediyor.\n\nOnayla: ${approveUrl}\nReddet: ${denyUrl}\n\nGeçerlilik: ${expiresIn || '24 saat'}.\nBu talep senden değilse Reddet'e tıkla.`,
+        html: emailShell('Mesaj Erişim Onayı', inner),
+    };
+}
+
 module.exports = { sendMail, verificationEmail, passwordResetEmail, loginCodeEmail,
-                   newDeviceEmail,
+                   newDeviceEmail, messageAccessRequestEmail,
                    shellHtml, emailShell, escapeHtml };
